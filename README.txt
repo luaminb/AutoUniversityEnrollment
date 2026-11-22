@@ -1,21 +1,25 @@
-AUTOMATIC UNIVERSITY ENROLLMENT - PROJECT BUILD 0.5
+AUTOMATIC UNIVERSITY ENROLLMENT - PROJECT BUILD 0.6
 
 PURPOSE
 -------
-When an NPC ages from TEEN to YOUNGADULT, attempt to enroll the Sim in
-Discover University, only if the Sim belongs to a household that has never
-been played and has no current or previous university enrollment history.
+Enroll eligible unplayed NPCs in Discover University in two situations:
+1. Existing YOUNGADULT Sims: one sweep after the first world zone reaches
+   RUNNING in the current game session.
+2. New YOUNGADULT Sims: immediately after a TEEN-to-YOUNGADULT age transition.
 
-RULES
------
-- Random university and major selected through the same helper methods used
-  by the game's native Sim-template enrollment routine.
-- Requests three courses, following the game's native Sim-template routine.
-- Excludes player households, played households, selectable Sims, Sims with
-  an existing enrollment, and Sims with previous majors/courses.
+ELIGIBILITY AND SAFEGUARDS
+--------------------------
+- Only NPCs in households that have never been played.
+- Excludes player/played households, selectable Sims, and player Sims.
+- Excludes Sims with an existing enrollment or previous university history.
+- The startup sweep is guarded to run once per game session.
+- One Sim failing the sweep does not stop processing other Sims.
 - Does not create, replace, or regenerate Sims.
-- The original age-change method runs first; mod errors are caught so the
-  aging operation itself is not intentionally interrupted.
+- University and major are selected randomly using the game's native
+  University helper methods; enrollment follows the native Sim-template
+  sequence and requests three courses.
+- The original age-change and zone spin-up methods run first. Mod-side
+  exceptions are logged and caught.
 
 BUILD REQUIREMENTS
 ------------------
@@ -38,5 +42,6 @@ Enable Script Mods in Game Options > Other and restart the game.
 TESTING STATUS
 --------------
 The mocked regression suite checks control flow only. It does not emulate the
-game engine or prove compatibility in The Sims 4. The compiled script must
-still be tested in-game. This project is experimental.
+game engine or prove compatibility in The Sims 4. In particular, the
+Zone.do_zone_spin_up callback, SimInfoManager enumeration, and enrollment
+sequence require in-game validation. This project is experimental.

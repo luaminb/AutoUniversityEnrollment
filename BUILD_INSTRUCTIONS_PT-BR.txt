@@ -1,0 +1,18 @@
+COMO GERAR O ARQUIVO .TS4SCRIPT
+
+O workflow do GitHub Actions compila o mod com Python 3.7.17, sem exigir
+que você instale essa versão no computador.
+
+1. Abra a aba Actions do repositório.
+2. Selecione "Build Auto University Enrollment".
+3. Clique em "Run workflow" e confirme.
+4. Aguarde a execução terminar com sucesso.
+5. Na página da execução, baixe o artefato "AutoUniversityEnrollment-ts4script".
+6. Extraia AutoUniversityEnrollment.ts4script para:
+   Documentos\Electronic Arts\The Sims 4\Mods\AutoUniversityEnrollment\
+7. Ative Mods de Script nas opções do jogo e reinicie o The Sims 4.
+
+O workflow executa os testes automatizados e só então compila com Python
+3.7.17. Os testes automatizados não substituem o teste dentro do jogo.
+
+O arquivo ainda não foi compilado nem testado dentro do jogo.

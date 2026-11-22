@@ -1,15 +1,19 @@
 # The Sims 4 - Automatic University Enrollment for unplayed NPCs
 # Requires Discover University and a Python 3.7-compatible TS4 runtime.
 
+import services
 import sims4.log
 from sims.aging.aging_mixin import AgingMixin
 from sims.sim_info_types import Age
 from sims.university.university_enums import EnrollmentStatus
 from sims.university.university_tuning import University
+from zone import Zone, ZoneState
 
 
 logger = sims4.log.Logger('AutoUniversityEnrollment')
 _PATCH_MARKER = '_auto_university_enrollment_patched'
+_ZONE_PATCH_MARKER = '_auto_university_enrollment_zone_patched'
+_startup_sweep_completed = False
 
 
 def _eligible_for_enrollment(sim_info):
@@ -90,6 +94,63 @@ def _enroll_sim(sim_info):
     except Exception as exc:
         logger.error('Automatic enrollment failed for Sim {}: {}', sim_info, exc)
         return False
+
+
+def _enroll_existing_young_adults():
+    """Run one global sweep after the first world zone is fully running."""
+    global _startup_sweep_completed
+
+    if _startup_sweep_completed:
+        return
+
+    try:
+        sim_info_manager = services.sim_info_manager()
+        if sim_info_manager is None:
+            logger.error('SimInfoManager is unavailable; startup enrollment sweep postponed.')
+            return
+
+        sim_infos = tuple(sim_info_manager.get_all())
+    except Exception as exc:
+        logger.error('Could not retrieve existing SimInfo records: {}', exc)
+        return
+
+    # Mark complete only after obtaining the complete manager collection.
+    _startup_sweep_completed = True
+    checked = 0
+    enrolled = 0
+
+    for sim_info in sim_infos:
+        try:
+            if sim_info.age != Age.YOUNGADULT:
+                continue
+            checked += 1
+            if _enroll_sim(sim_info):
+                enrolled += 1
+        except Exception as exc:
+            # One malformed or unavailable Sim must not stop the remaining sweep.
+            logger.error('Startup enrollment failed for Sim {}: {}', sim_info, exc)
+
+    logger.info('Startup sweep finished. Young adults checked={} enrolled={}', checked, enrolled)
+
+
+if not getattr(Zone, _ZONE_PATCH_MARKER, False):
+    _original_do_zone_spin_up = Zone.do_zone_spin_up
+
+    def _auto_university_zone_spin_up(self, household_id, active_sim_id, *args, **kwargs):
+        result = _original_do_zone_spin_up(self, household_id, active_sim_id, *args, **kwargs)
+
+        def _run_sweep():
+            try:
+                _enroll_existing_young_adults()
+            except Exception as exc:
+                logger.error('Unexpected startup sweep error: {}', exc)
+
+        # RUNNING ensures household and SimInfo services are available.
+        self.register_callback(ZoneState.RUNNING, _run_sweep)
+        return result
+
+    Zone.do_zone_spin_up = _auto_university_zone_spin_up
+    setattr(Zone, _ZONE_PATCH_MARKER, True)
 
 
 if not getattr(AgingMixin, _PATCH_MARKER, False):

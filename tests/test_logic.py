@@ -102,7 +102,7 @@ class EnrollmentLogicTests(unittest.TestCase):
         self.assertEqual(another.degree_tracker.status,0)
 
     def test_zone_spin_up_registers_sweep_for_running_state(self):
-        zone=FakeZone()
+        zone=self.mod.Zone()
         self.assertEqual(zone.do_zone_spin_up(1,2),'zone-result')
         state, callback=zone.registered_callback
         self.assertEqual(state,'RUNNING')

@@ -26,8 +26,8 @@ class FakeAgingMixin:
     def change_age(self,new_age,current_age): self.last_age_change=(new_age,current_age); return 'age-change-result'
 
 class FakeSim(FakeAgingMixin):
-    def __init__(self, npc=True, player=False, played=False, selectable=False, tracker=None, household=True):
-        self.is_npc=npc; self.is_player_sim=player; self.is_played_sim=played; self.is_selectable=selectable
+    def __init__(self, npc=True, player=False, played=False, selectable=False, tracker=None, household=True, age=4):
+        self.is_npc=npc; self.is_player_sim=player; self.is_played_sim=played; self.is_selectable=selectable; self.age=age
         self.household=types.SimpleNamespace(is_player_household=player,is_played_household=played) if household else None
         self.degree_tracker=tracker or FakeTracker()
 
@@ -86,5 +86,26 @@ class EnrollmentLogicTests(unittest.TestCase):
             self.assertFalse(self.mod._enroll_sim(FakeSim()))
         finally:
             self.mod.University.ALL_UNIVERSITIES=original
+
+    def test_startup_sweep_enrolls_existing_young_adults_once(self):
+        existing=FakeSim(age=4)
+        teen=FakeSim(age=3)
+        manager=types.SimpleNamespace(get_all=lambda:[existing,teen])
+        self.mod.services.sim_info_manager=lambda:manager
+        self.mod._startup_sweep_completed=False
+        self.mod._enroll_existing_young_adults()
+        self.assertEqual(existing.degree_tracker.status,1)
+        self.assertEqual(teen.degree_tracker.status,0)
+        another=FakeSim(age=4)
+        self.mod.services.sim_info_manager=lambda:types.SimpleNamespace(get_all=lambda:[another])
+        self.mod._enroll_existing_young_adults()
+        self.assertEqual(another.degree_tracker.status,0)
+
+    def test_zone_spin_up_registers_sweep_for_running_state(self):
+        zone=FakeZone()
+        self.assertEqual(zone.do_zone_spin_up(1,2),'zone-result')
+        state, callback=zone.registered_callback
+        self.assertEqual(state,'RUNNING')
+        self.assertTrue(callable(callback))
 
 if __name__=='__main__': unittest.main()

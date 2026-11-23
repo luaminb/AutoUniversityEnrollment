@@ -51,16 +51,52 @@ class FakeCourseCareer:
     def __init__(self, day): self.day=day
     def get_next_work_time(self, **kwargs): return (None, FakeDateTime(self.day), None)
 
+class FakeCareerBase:
+    def request_day_off(self, reason): self.requested_day_off_reason=reason
+    def _start_work_callback(self, scheduler, alarm_data, extra_data):
+        self.original_start_called=True
+        return 'career-start-result'
+
+class FakeCareerLocation:
+    def on_npc_start_work(self):
+        self.original_npc_start_called=True
+        return 'npc-start-result'
+
+class FakeTimeSpan:
+    def __init__(self, minutes=0): self.minutes=minutes
+    def __add__(self, other): return FakeTimeSpan(self.minutes+other.minutes)
+
+class FakeDateTime:
+    def __init__(self, day): self.day=day
+    def absolute_days(self): return self.day
+    def __sub__(self, other): return FakeTimeSpan((self.day-other.day)*1440)
+    def __add__(self, span): return FakeDateTime(self.day + span.minutes/1440)
+
+class FakeCourseCareer:
+    is_course_slot=True
+    def __init__(self, day): self.day=day
+    def get_next_work_time(self, **kwargs): return (None, FakeDateTime(self.day), None)
+
 class FakeSim(FakeAgingMixin):
     def __init__(self, npc=True, player=False, played=False, selectable=False, tracker=None, household=True, age=4, aspiration=None):
         self.is_npc=npc; self.is_player_sim=player; self.is_played_sim=played; self.is_selectable=selectable; self.age=age
         self.household=types.SimpleNamespace(is_player_household=player,is_played_household=played) if household else None
         self.degree_tracker=tracker or FakeTracker(); self._primary_aspiration=aspiration
         self.career_tracker=types.SimpleNamespace(careers={})
+        self.career_tracker=types.SimpleNamespace(careers={})
 
 def load_mod():
     sims4=types.ModuleType('sims4'); sims4.log=types.SimpleNamespace(Logger=FakeLogger)
     services=types.ModuleType('services'); services.sim_info_manager=lambda: None
+    services.time_service=lambda: types.SimpleNamespace(sim_now=FakeDateTime(10))
+    careers=types.ModuleType('careers'); careers.__path__=[]
+    career_base=types.ModuleType('careers.career_base'); career_base.CareerBase=FakeCareerBase
+    career_location=types.ModuleType('careers.career_location'); career_location.CareerLocation=FakeCareerLocation
+    career_ops=types.ModuleType('careers.career_ops'); career_ops.CareerTimeOffReason=types.SimpleNamespace(FAKE_SICK='FAKE_SICK')
+    date_and_time=types.ModuleType('date_and_time'); date_and_time.create_time_span=lambda hours=0, minutes=0: FakeTimeSpan(hours*60+minutes)
+    sys.modules['careers']=careers; sys.modules['careers.career_base']=career_base
+    sys.modules['careers.career_location']=career_location; sys.modules['careers.career_ops']=career_ops
+    sys.modules['date_and_time']=date_and_time
     services.time_service=lambda: types.SimpleNamespace(sim_now=FakeDateTime(10))
     careers=types.ModuleType('careers'); careers.__path__=[]
     career_base=types.ModuleType('careers.career_base'); career_base.CareerBase=FakeCareerBase
@@ -96,6 +132,12 @@ class EnrollmentLogicTests(unittest.TestCase):
     def test_excludes_played_household(self): self.assertFalse(self.mod._eligible_for_enrollment(FakeSim(played=True)))
     def test_excludes_selectable_sim(self): self.assertFalse(self.mod._eligible_for_enrollment(FakeSim(selectable=True)))
     def test_excludes_previous_history(self): self.assertFalse(self.mod._eligible_for_enrollment(FakeSim(tracker=FakeTracker(previous_majors=['prior']))))
+    def test_excludes_completed_degree_from_public_history(self):
+        class PublicHistoryTracker(FakeTracker):
+            @property
+            def previous_majors(self): return ('LanguageAndLiterature',)
+        self.assertTrue(self.mod._has_completed_degree(PublicHistoryTracker()))
+        self.assertFalse(self.mod._eligible_for_enrollment(FakeSim(tracker=PublicHistoryTracker())))
     def test_excludes_completed_degree_from_public_history(self):
         class PublicHistoryTracker(FakeTracker):
             @property
@@ -161,6 +203,39 @@ class EnrollmentLogicTests(unittest.TestCase):
         state, callback=zone.registered_callback
         self.assertEqual(state,'RUNNING')
         self.assertTrue(callable(callback))
+
+    def test_class_day_requests_paid_leave_without_pto(self):
+        sim=FakeSim()
+        sim.degree_tracker.status=1
+        sim.career_tracker.careers={1:FakeCourseCareer(10)}
+        career=FakeCareerBase()
+        career.sim_info=sim
+        career.is_course_slot=False
+        career._at_work=False
+        career.requested_day_off=False
+        career.taking_day_off=False
+        self.assertTrue(self.mod._prepare_academic_day_off(career))
+        self.assertEqual(career.requested_day_off_reason,'FAKE_SICK')
+        self.assertTrue(career._aue_academic_day_off)
+
+    def test_non_class_day_does_not_request_leave(self):
+        sim=FakeSim()
+        sim.degree_tracker.status=1
+        sim.career_tracker.careers={1:FakeCourseCareer(11)}
+        career=FakeCareerBase()
+        career.sim_info=sim
+        career.is_course_slot=False
+        career._at_work=False
+        career.requested_day_off=False
+        career.taking_day_off=False
+        self.assertFalse(self.mod._prepare_academic_day_off(career))
+        self.assertFalse(hasattr(career,'requested_day_off_reason'))
+
+    def test_academic_day_off_prevents_npc_workplace_dispatch(self):
+        location=FakeCareerLocation()
+        location._career=types.SimpleNamespace(_aue_academic_day_off=True)
+        self.assertIsNone(location.on_npc_start_work())
+        self.assertFalse(getattr(location,'original_npc_start_called',False))
 
     def test_class_day_requests_paid_leave_without_pto(self):
         sim=FakeSim()

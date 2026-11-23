@@ -26,10 +26,10 @@ class FakeAgingMixin:
     def change_age(self,new_age,current_age): self.last_age_change=(new_age,current_age); return 'age-change-result'
 
 class FakeSim(FakeAgingMixin):
-    def __init__(self, npc=True, player=False, played=False, selectable=False, tracker=None, household=True, age=4):
+    def __init__(self, npc=True, player=False, played=False, selectable=False, tracker=None, household=True, age=4, aspiration=None):
         self.is_npc=npc; self.is_player_sim=player; self.is_played_sim=played; self.is_selectable=selectable; self.age=age
         self.household=types.SimpleNamespace(is_player_household=player,is_played_household=played) if household else None
-        self.degree_tracker=tracker or FakeTracker()
+        self.degree_tracker=tracker or FakeTracker(); self._primary_aspiration=aspiration
 
 def load_mod():
     sims4=types.ModuleType('sims4'); sims4.log=types.SimpleNamespace(Logger=FakeLogger)
@@ -47,7 +47,7 @@ def load_mod():
     university=types.ModuleType('sims.university'); enums=types.ModuleType('sims.university.university_enums')
     enums.EnrollmentStatus=types.SimpleNamespace(NONE=0,ENROLLED=1,NOT_ENROLLED=2,PROBATION=3)
     tuning=types.ModuleType('sims.university.university_tuning')
-    tuning.University=types.SimpleNamespace(ALL_UNIVERSITIES=('Britechester','Foxbury'),ALL_DEGREES=('Biology','Arts'),choose_random_university=lambda:'Britechester',choose_random_major=lambda:'Biology')
+    tuning.University=types.SimpleNamespace(ALL_UNIVERSITIES=('Britechester','Foxbury'),ALL_DEGREES=('Biology','LanguageAndLiterature','FineArt','Drama','CulinaryArts','ComputerScience','Physics','Economics','Villainy','History','Communications'),choose_random_university=lambda:'Britechester',choose_random_major=lambda:'Biology')
     for name,module in {'services':services,'zone':zone,'zone_types':zone_types,'sims':sims,'sims.aging':aging,'sims.aging.aging_mixin':aging_mixin,'sims.sim_info_types':sim_info_types,'sims.university':university,'sims.university.university_enums':enums,'sims.university.university_tuning':tuning}.items(): sys.modules[name]=module
     path=pathlib.Path(__file__).parents[1]/'auto_university_enrollment.py'
     spec=importlib.util.spec_from_file_location('auto_university_enrollment_test',str(path)); mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
@@ -63,6 +63,16 @@ class EnrollmentLogicTests(unittest.TestCase):
     def test_enrollment_sequence(self):
         sim=FakeSim(); self.assertTrue(self.mod._enroll_sim(sim)); self.assertEqual(sim.degree_tracker.status,1)
         self.assertEqual(sim.degree_tracker.major,'Biology'); self.assertEqual(sim.degree_tracker.university,'Britechester')
+    def test_bestselling_author_prefers_language_and_literature(self):
+        sim=FakeSim(aspiration='BestSellingAuthor')
+        selected=self.mod._choose_major_for_aspiration(sim, self.mod.University.ALL_DEGREES)
+        self.assertEqual(selected, 'LanguageAndLiterature')
+
+    def test_unknown_aspiration_uses_random_major(self):
+        sim=FakeSim(aspiration='UnknownAspiration')
+        selected=self.mod._choose_major_for_aspiration(sim, self.mod.University.ALL_DEGREES)
+        self.assertEqual(selected, 'Biology')
+
     def test_only_teen_to_young_adult_triggers(self):
         sim=FakeSim(); self.assertEqual(sim.change_age(4,3),'age-change-result'); self.assertEqual(sim.degree_tracker.status,1)
         other=FakeSim(); other.change_age(3,2); self.assertEqual(other.degree_tracker.status,0)

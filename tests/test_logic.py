@@ -20,7 +20,7 @@ class FakeTracker:
     def is_accepted_degree(self, university, major): return (university,major) in self.accepted
     def set_accepted_degree(self, university, major): self.accepted.add((university,major))
     def enroll(self, major, university, course_count, courses):
-        self.major=major; self.university=university; self.status=1
+        self.major=major; self.university=university; self.course_count=course_count; self.courses=courses; self.status=1
 
 class FakeAgingMixin:
     def change_age(self,new_age,current_age): self.last_age_change=(new_age,current_age); return 'age-change-result'
@@ -110,6 +110,8 @@ class EnrollmentLogicTests(unittest.TestCase):
     def test_enrollment_sequence(self):
         sim=FakeSim(); self.assertTrue(self.mod._enroll_sim(sim)); self.assertEqual(sim.degree_tracker.status,1)
         self.assertEqual(sim.degree_tracker.major,'Biology'); self.assertEqual(sim.degree_tracker.university,'Britechester')
+        self.assertEqual(sim.degree_tracker.course_count,4)
+        self.assertEqual(sim.degree_tracker.courses,[])
     def test_bestselling_author_prefers_language_and_literature(self):
         sim=FakeSim(aspiration='BestSellingAuthor')
         selected=self.mod._choose_major_for_aspiration(sim, self.mod.University.ALL_DEGREES)

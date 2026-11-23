@@ -64,6 +64,10 @@ def _get_primary_aspiration_key(sim_info):
     try:
         aspiration = getattr(sim_info, '_primary_aspiration', None)
         if aspiration is None:
+            aspiration_tracker = getattr(sim_info, 'aspiration_tracker', None)
+            if aspiration_tracker is not None:
+                aspiration = getattr(aspiration_tracker, 'primary_aspiration', None)
+        if aspiration is None:
             aspiration = getattr(sim_info, 'primary_aspiration', None)
         return _tuning_name(aspiration)
     except Exception as exc:

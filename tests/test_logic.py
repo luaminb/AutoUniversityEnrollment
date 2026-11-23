@@ -35,10 +35,12 @@ def load_mod():
     sims4=types.ModuleType('sims4'); sims4.log=types.SimpleNamespace(Logger=FakeLogger)
     services=types.ModuleType('services'); services.sim_info_manager=lambda: None
     zone=types.ModuleType('zone')
+    zone_types=types.ModuleType('zone_types')
+    zone_types.ZoneState=types.SimpleNamespace(RUNNING='RUNNING')
     class FakeZone:
         def do_zone_spin_up(self, household_id, active_sim_id): return 'zone-result'
         def register_callback(self, state, callback): self.registered_callback=(state, callback)
-    zone.Zone=FakeZone; zone.ZoneState=types.SimpleNamespace(RUNNING='RUNNING')
+    zone.Zone=FakeZone
     sys.modules['sims4']=sims4; sys.modules['sims4.log']=sims4.log
     sims=types.ModuleType('sims'); aging=types.ModuleType('sims.aging'); aging_mixin=types.ModuleType('sims.aging.aging_mixin'); aging_mixin.AgingMixin=FakeAgingMixin
     sim_info_types=types.ModuleType('sims.sim_info_types'); sim_info_types.Age=types.SimpleNamespace(TEEN=3,YOUNGADULT=4)
@@ -46,7 +48,7 @@ def load_mod():
     enums.EnrollmentStatus=types.SimpleNamespace(NONE=0,ENROLLED=1,NOT_ENROLLED=2,PROBATION=3)
     tuning=types.ModuleType('sims.university.university_tuning')
     tuning.University=types.SimpleNamespace(ALL_UNIVERSITIES=('Britechester','Foxbury'),ALL_DEGREES=('Biology','Arts'),choose_random_university=lambda:'Britechester',choose_random_major=lambda:'Biology')
-    for name,module in {'services':services,'zone':zone,'sims':sims,'sims.aging':aging,'sims.aging.aging_mixin':aging_mixin,'sims.sim_info_types':sim_info_types,'sims.university':university,'sims.university.university_enums':enums,'sims.university.university_tuning':tuning}.items(): sys.modules[name]=module
+    for name,module in {'services':services,'zone':zone,'zone_types':zone_types,'sims':sims,'sims.aging':aging,'sims.aging.aging_mixin':aging_mixin,'sims.sim_info_types':sim_info_types,'sims.university':university,'sims.university.university_enums':enums,'sims.university.university_tuning':tuning}.items(): sys.modules[name]=module
     path=pathlib.Path(__file__).parents[1]/'auto_university_enrollment.py'
     spec=importlib.util.spec_from_file_location('auto_university_enrollment_test',str(path)); mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
     return mod

@@ -107,12 +107,6 @@ class EnrollmentLogicTests(unittest.TestCase):
             def previous_majors(self): return ('LanguageAndLiterature',)
         self.assertTrue(self.mod._has_completed_degree(PublicHistoryTracker()))
         self.assertFalse(self.mod._eligible_for_enrollment(FakeSim(tracker=PublicHistoryTracker())))
-    def test_excludes_completed_degree_from_public_history(self):
-        class PublicHistoryTracker(FakeTracker):
-            @property
-            def previous_majors(self): return ('LanguageAndLiterature',)
-        self.assertTrue(self.mod._has_completed_degree(PublicHistoryTracker()))
-        self.assertFalse(self.mod._eligible_for_enrollment(FakeSim(tracker=PublicHistoryTracker())))
     def test_enrollment_sequence(self):
         sim=FakeSim(); self.assertTrue(self.mod._enroll_sim(sim)); self.assertEqual(sim.degree_tracker.status,1)
         self.assertEqual(sim.degree_tracker.major,'Biology'); self.assertEqual(sim.degree_tracker.university,'Britechester')

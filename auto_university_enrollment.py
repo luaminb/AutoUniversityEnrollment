@@ -269,7 +269,7 @@ def _enroll_sim(sim_info):
         if not tracker.is_accepted_degree(university, major):
             tracker.set_accepted_degree(university, major)
 
-        tracker.enroll(major, university, 3, [])
+        tracker.enroll(major, university, 4, [])
 
         status = tracker.get_enrollment_status()
         enrolled_major = tracker.get_enrolled_major()

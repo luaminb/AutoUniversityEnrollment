@@ -7,7 +7,8 @@ from sims.aging.aging_mixin import AgingMixin
 from sims.sim_info_types import Age
 from sims.university.university_enums import EnrollmentStatus
 from sims.university.university_tuning import University
-from zone import Zone, ZoneState
+from zone import Zone
+import zone_types
 
 
 logger = sims4.log.Logger('AutoUniversityEnrollment')
@@ -146,7 +147,7 @@ if not getattr(Zone, _ZONE_PATCH_MARKER, False):
                 logger.error('Unexpected startup sweep error: {}', exc)
 
         # RUNNING ensures household and SimInfo services are available.
-        self.register_callback(ZoneState.RUNNING, _run_sweep)
+        self.register_callback(zone_types.ZoneState.RUNNING, _run_sweep)
         return result
 
     Zone.do_zone_spin_up = _auto_university_zone_spin_up

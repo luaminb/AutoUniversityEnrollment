@@ -56,32 +56,6 @@ class FakeCourseCareer:
     def __init__(self, day): self.day=day
     def get_next_work_time(self, **kwargs): return (None, FakeDateTime(self.day), None)
 
-class FakeCareerBase:
-    def request_day_off(self, reason): self.requested_day_off_reason=reason
-    def _start_work_callback(self, scheduler, alarm_data, extra_data):
-        self.original_start_called=True
-        return 'career-start-result'
-
-class FakeCareerLocation:
-    def on_npc_start_work(self):
-        self.original_npc_start_called=True
-        return 'npc-start-result'
-
-class FakeTimeSpan:
-    def __init__(self, minutes=0): self.minutes=minutes
-    def __add__(self, other): return FakeTimeSpan(self.minutes+other.minutes)
-
-class FakeDateTime:
-    def __init__(self, day): self.day=day
-    def absolute_days(self): return self.day
-    def __sub__(self, other): return FakeTimeSpan((self.day-other.day)*1440)
-    def __add__(self, span): return FakeDateTime(self.day + span.minutes/1440)
-
-class FakeCourseCareer:
-    is_course_slot=True
-    def __init__(self, day): self.day=day
-    def get_next_work_time(self, **kwargs): return (None, FakeDateTime(self.day), None)
-
 class FakeSim(FakeAgingMixin):
     def __init__(self, npc=True, player=False, played=False, selectable=False, tracker=None, household=True, age=4, aspiration=None):
         self.is_npc=npc; self.is_player_sim=player; self.is_played_sim=played; self.is_selectable=selectable; self.age=age

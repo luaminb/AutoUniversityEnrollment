@@ -17,6 +17,84 @@ _ZONE_PATCH_MARKER = '_auto_university_enrollment_zone_patched'
 _startup_sweep_completed = False
 
 
+# Conservative mappings: only aspirations with a clear academic/career link
+# receive a preferred major. All other aspirations retain random selection.
+_ASPIRATION_MAJOR_MAP = (
+    (('bestsellingauthor', 'writer', 'writing'), 'languageandliterature'),
+    (('painterextraordinaire', 'artisticprodigy', 'painter'), 'fineart'),
+    (('musicalgenius', 'actor', 'dramatic'), 'drama'),
+    (('masterchef', 'mastermixologist', 'chef', 'mixologist'), 'culinaryarts'),
+    (('computerwhiz', 'computer'), 'computerscience'),
+    (('nerdbrain', 'scientist', 'science'), 'physics'),
+    (('bodybuilder', 'freelancebotanist', 'botanist', 'fitness'), 'biology'),
+    (('fabulouslywealthy', 'mansionbaron', 'business'), 'economics'),
+    (('publicenemy', 'chiefofmischief', 'villain', 'criminal'), 'villainy'),
+    (('archaeologyscholar', 'historian', 'history'), 'history'),
+    (('friendofworld', 'socialbutterfly', 'communication'), 'communications'),
+)
+
+
+def _tuning_name(tuning):
+    """Get a stable, lowercase identifier from a tuning instance."""
+    if tuning is None:
+        return ''
+
+    try:
+        name = getattr(tuning, '__name__', None)
+        if name:
+            return str(name).lower().replace('_', '').replace(' ', '')
+    except Exception:
+        pass
+
+    try:
+        name = getattr(tuning, 'name', None)
+        if name:
+            return str(name).lower().replace('_', '').replace(' ', '')
+    except Exception:
+        pass
+
+    try:
+        return str(tuning).lower().replace('_', '').replace(' ', '')
+    except Exception:
+        return ''
+
+
+def _get_primary_aspiration_key(sim_info):
+    """Read the Sim's primary aspiration without requiring a loaded Sim instance."""
+    try:
+        aspiration = getattr(sim_info, '_primary_aspiration', None)
+        if aspiration is None:
+            aspiration = getattr(sim_info, 'primary_aspiration', None)
+        return _tuning_name(aspiration)
+    except Exception as exc:
+        logger.error('Could not read primary aspiration for Sim {}: {}', sim_info, exc)
+        return ''
+
+
+def _choose_major_for_aspiration(sim_info, majors):
+    """Choose a matching tuned major, or use the game's random-major helper."""
+    aspiration_key = _get_primary_aspiration_key(sim_info)
+
+    if aspiration_key:
+        for aspiration_tokens, major_token in _ASPIRATION_MAJOR_MAP:
+            if any(token in aspiration_key for token in aspiration_tokens):
+                for major in majors:
+                    if major_token in _tuning_name(major):
+                        logger.info(
+                            'Aspiration-based major selected: Sim={} Aspiration={} Major={}',
+                            sim_info, aspiration_key, major
+                        )
+                        return major
+
+                logger.info(
+                    'Preferred major {} for aspiration {} is not available in tuning; using random major.',
+                    major_token, aspiration_key
+                )
+                break
+
+    return University.choose_random_major()
+
+
 def _eligible_for_enrollment(sim_info):
     """Return True only for NPCs in households that have never been played."""
     if sim_info is None:
@@ -61,7 +139,6 @@ def _enroll_sim(sim_info):
         return False
 
     tracker = sim_info.degree_tracker
-    # Use the same selection helpers called by the game's native Sim template.
     universities = tuple(University.ALL_UNIVERSITIES)
     majors = tuple(University.ALL_DEGREES)
     if not universities or not majors:
@@ -69,7 +146,7 @@ def _enroll_sim(sim_info):
         return False
 
     university = University.choose_random_university()
-    major = University.choose_random_major()
+    major = _choose_major_for_aspiration(sim_info, majors)
     if university not in universities or major not in majors:
         logger.error('Random university/major selection returned an invalid tuning reference for {}', sim_info)
         return False

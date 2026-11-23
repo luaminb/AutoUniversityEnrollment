@@ -3,6 +3,10 @@
 
 import services
 import sims4.log
+from careers.career_base import CareerBase
+from careers.career_location import CareerLocation
+from careers.career_ops import CareerTimeOffReason
+from date_and_time import create_time_span
 from sims.aging.aging_mixin import AgingMixin
 from sims.sim_info_types import Age
 from sims.university.university_enums import EnrollmentStatus
@@ -14,6 +18,8 @@ import zone_types
 logger = sims4.log.Logger('AutoUniversityEnrollment')
 _PATCH_MARKER = '_auto_university_enrollment_patched'
 _ZONE_PATCH_MARKER = '_auto_university_enrollment_zone_patched'
+_CAREER_PATCH_MARKER = '_auto_university_enrollment_career_patched'
+_CAREER_LOCATION_PATCH_MARKER = '_auto_university_enrollment_career_location_patched'
 _startup_sweep_completed = False
 
 
@@ -99,6 +105,108 @@ def _choose_major_for_aspiration(sim_info, majors):
     return University.choose_random_major()
 
 
+def _has_completed_degree(tracker):
+    """Use the public DegreeTracker history to detect any graduated major."""
+    if tracker is None:
+        return False
+    try:
+        previous_majors = getattr(tracker, 'previous_majors', None)
+        if previous_majors:
+            return True
+    except Exception:
+        pass
+    try:
+        return bool(getattr(tracker, '_previous_majors', ()))
+    except Exception:
+        return False
+
+
+def _has_university_class_on_day(sim_info, reference_time=None):
+    """Check active UniversityCourseCareerSlot schedules for a given day."""
+    try:
+        career_tracker = getattr(sim_info, 'career_tracker', None)
+        if career_tracker is None:
+            return False
+        careers = getattr(career_tracker, 'careers', {})
+        career_values = careers.values() if hasattr(careers, 'values') else ()
+        course_careers = tuple(c for c in career_values if getattr(c, 'is_course_slot', False))
+        if not course_careers:
+            return False
+
+        now = reference_time if reference_time is not None else services.time_service().sim_now
+        today = int(now.absolute_days())
+        initial_offset = create_time_span(hours=-36)
+
+        for course_career in course_careers:
+            offset = initial_offset
+            for _ in range(12):
+                result = course_career.get_next_work_time(
+                    offset_time=offset,
+                    check_if_can_go_now=False,
+                    consider_skipped_shifts=False,
+                    ignore_pto=True
+                )
+                if not result or len(result) < 2:
+                    break
+                class_start = result[1]
+                if class_start is None:
+                    break
+                class_day = int(class_start.absolute_days())
+                if class_day == today:
+                    return True
+                if class_day > today:
+                    break
+                offset = (class_start - now) + create_time_span(minutes=1)
+        return False
+    except Exception as exc:
+        logger.error('Could not inspect university class schedule for Sim {}: {}', sim_info, exc)
+        return False
+
+
+def _is_unplayed_npc_with_active_degree(sim_info):
+    """Limit academic leave to NPCs in unplayed households with active enrollment."""
+    try:
+        if sim_info is None or not sim_info.is_npc:
+            return False
+        if sim_info.is_player_sim or sim_info.is_played_sim or sim_info.is_selectable:
+            return False
+        household = sim_info.household
+        if household is None or household.is_player_household or household.is_played_household:
+            return False
+        tracker = sim_info.degree_tracker
+        if tracker is None:
+            return False
+        return tracker.get_enrollment_status() in (EnrollmentStatus.ENROLLED, EnrollmentStatus.PROBATION)
+    except Exception as exc:
+        logger.error('Could not validate academic leave eligibility for Sim {}: {}', sim_info, exc)
+        return False
+
+
+def _prepare_academic_day_off(career):
+    """Request paid academic leave before the Sim's work shift starts."""
+    try:
+        if getattr(career, 'is_course_slot', False) or getattr(career, '_at_work', False):
+            return False
+        if getattr(career, 'requested_day_off', False) or getattr(career, 'taking_day_off', False):
+            return False
+        sim_info = getattr(career, 'sim_info', None)
+        if sim_info is None:
+            sim_info = getattr(career, '_sim_info', None)
+        if not _is_unplayed_npc_with_active_degree(sim_info):
+            return False
+        if not _has_university_class_on_day(sim_info):
+            return False
+
+        # FAKE_SICK uses the native paid-leave pipeline without deducting PTO.
+        career.request_day_off(CareerTimeOffReason.FAKE_SICK)
+        career._aue_academic_day_off = True
+        logger.info('Academic paid day off requested: Sim={} Career={}', sim_info, career)
+        return True
+    except Exception as exc:
+        logger.error('Could not request academic day off for career {}: {}', career, exc)
+        return False
+
+
 def _eligible_for_enrollment(sim_info):
     """Return True only for NPCs in households that have never been played."""
     if sim_info is None:
@@ -127,9 +235,9 @@ def _eligible_for_enrollment(sim_info):
             return False
         if tracker.get_enrolled_major() is not None:
             return False
-        if getattr(tracker, '_previous_majors', ()):
+        if _has_completed_degree(tracker):
             return False
-        if getattr(tracker, '_previous_courses', ()):
+        if getattr(tracker, 'previous_courses', None) or getattr(tracker, '_previous_courses', ()):
             return False
 
         return True
@@ -213,6 +321,34 @@ def _enroll_existing_young_adults():
             logger.error('Startup enrollment failed for Sim {}: {}', sim_info, exc)
 
     logger.info('Startup sweep finished. Young adults checked={} enrolled={}', checked, enrolled)
+
+
+if not getattr(CareerBase, _CAREER_PATCH_MARKER, False):
+    _original_start_work_callback = CareerBase._start_work_callback
+
+    def _auto_university_start_work_callback(self, scheduler, alarm_data, extra_data):
+        self._aue_academic_day_off = False
+        try:
+            _prepare_academic_day_off(self)
+        except Exception as exc:
+            logger.error('Unexpected academic leave error for career {}: {}', self, exc)
+        return _original_start_work_callback(self, scheduler, alarm_data, extra_data)
+
+    CareerBase._start_work_callback = _auto_university_start_work_callback
+    setattr(CareerBase, _CAREER_PATCH_MARKER, True)
+
+
+if not getattr(CareerLocation, _CAREER_LOCATION_PATCH_MARKER, False):
+    _original_on_npc_start_work = CareerLocation.on_npc_start_work
+
+    def _auto_university_npc_start_work(self):
+        career = getattr(self, '_career', None)
+        if career is not None and getattr(career, '_aue_academic_day_off', False):
+            return
+        return _original_on_npc_start_work(self)
+
+    CareerLocation.on_npc_start_work = _auto_university_npc_start_work
+    setattr(CareerLocation, _CAREER_LOCATION_PATCH_MARKER, True)
 
 
 if not getattr(Zone, _ZONE_PATCH_MARKER, False):

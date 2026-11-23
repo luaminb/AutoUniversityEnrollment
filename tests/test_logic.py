@@ -27,9 +27,13 @@ class FakeAgingMixin:
 
 class FakeCareerBase:
     def request_day_off(self, reason): self.requested_day_off_reason=reason
+    def handle_career_loot(self, hours): self.paid_hours=hours
     def _start_work_callback(self, scheduler, alarm_data, extra_data):
         self.original_start_called=True
         return 'career-start-result'
+    def _end_work_callback(self, alarm):
+        self.original_end_called=True
+        return 'career-end-result'
 
 class FakeCareerLocation:
     def on_npc_start_work(self):
@@ -39,6 +43,7 @@ class FakeCareerLocation:
 class FakeTimeSpan:
     def __init__(self, minutes=0): self.minutes=minutes
     def __add__(self, other): return FakeTimeSpan(self.minutes+other.minutes)
+    def in_hours(self): return self.minutes/60.0
 
 class FakeDateTime:
     def __init__(self, day): self.day=day
@@ -236,6 +241,16 @@ class EnrollmentLogicTests(unittest.TestCase):
         location._career=types.SimpleNamespace(_aue_academic_day_off=True)
         self.assertIsNone(location.on_npc_start_work())
         self.assertFalse(getattr(location,'original_npc_start_called',False))
+
+    def test_npc_academic_leave_receives_full_shift_pay(self):
+        career=FakeCareerBase()
+        career._aue_academic_day_off=True
+        career._sim_info=types.SimpleNamespace(is_npc=True)
+        career.currently_at_work=False
+        career._current_work_duration=FakeTimeSpan(8*60)
+        self.assertEqual(career._end_work_callback(None),'career-end-result')
+        self.assertEqual(career.paid_hours,8.0)
+        self.assertTrue(career.original_end_called)
 
     def test_class_day_requests_paid_leave_without_pto(self):
         sim=FakeSim()

@@ -62,20 +62,10 @@ class FakeSim(FakeAgingMixin):
         self.household=types.SimpleNamespace(is_player_household=player,is_played_household=played) if household else None
         self.degree_tracker=tracker or FakeTracker(); self._primary_aspiration=aspiration
         self.career_tracker=types.SimpleNamespace(careers={})
-        self.career_tracker=types.SimpleNamespace(careers={})
 
 def load_mod():
     sims4=types.ModuleType('sims4'); sims4.log=types.SimpleNamespace(Logger=FakeLogger)
     services=types.ModuleType('services'); services.sim_info_manager=lambda: None
-    services.time_service=lambda: types.SimpleNamespace(sim_now=FakeDateTime(10))
-    careers=types.ModuleType('careers'); careers.__path__=[]
-    career_base=types.ModuleType('careers.career_base'); career_base.CareerBase=FakeCareerBase
-    career_location=types.ModuleType('careers.career_location'); career_location.CareerLocation=FakeCareerLocation
-    career_ops=types.ModuleType('careers.career_ops'); career_ops.CareerTimeOffReason=types.SimpleNamespace(FAKE_SICK='FAKE_SICK')
-    date_and_time=types.ModuleType('date_and_time'); date_and_time.create_time_span=lambda hours=0, minutes=0: FakeTimeSpan(hours*60+minutes)
-    sys.modules['careers']=careers; sys.modules['careers.career_base']=career_base
-    sys.modules['careers.career_location']=career_location; sys.modules['careers.career_ops']=career_ops
-    sys.modules['date_and_time']=date_and_time
     services.time_service=lambda: types.SimpleNamespace(sim_now=FakeDateTime(10))
     careers=types.ModuleType('careers'); careers.__path__=[]
     career_base=types.ModuleType('careers.career_base'); career_base.CareerBase=FakeCareerBase

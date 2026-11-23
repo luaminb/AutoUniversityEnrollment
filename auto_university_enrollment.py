@@ -325,6 +325,7 @@ def _enroll_existing_young_adults():
 
 if not getattr(CareerBase, _CAREER_PATCH_MARKER, False):
     _original_start_work_callback = CareerBase._start_work_callback
+    _original_end_work_callback = CareerBase._end_work_callback
 
     def _auto_university_start_work_callback(self, scheduler, alarm_data, extra_data):
         self._aue_academic_day_off = False
@@ -334,7 +335,23 @@ if not getattr(CareerBase, _CAREER_PATCH_MARKER, False):
             logger.error('Unexpected academic leave error for career {}: {}', self, exc)
         return _original_start_work_callback(self, scheduler, alarm_data, extra_data)
 
+    def _auto_university_end_work_callback(self, alarm):
+        # NPC careers skip handle_career_loot on non-attendance in the vanilla
+        # callback. Pay their full scheduled shift explicitly for academic leave.
+        sim_info = getattr(self, '_sim_info', None)
+        if (getattr(self, '_aue_academic_day_off', False)
+                and sim_info is not None and sim_info.is_npc
+                and not getattr(self, 'currently_at_work', False)):
+            try:
+                duration = getattr(self, '_current_work_duration', None)
+                if duration is not None:
+                    self.handle_career_loot(duration.in_hours())
+            except Exception as exc:
+                logger.error('Could not pay NPC academic leave for career {}: {}', self, exc)
+        return _original_end_work_callback(self, alarm)
+
     CareerBase._start_work_callback = _auto_university_start_work_callback
+    CareerBase._end_work_callback = _auto_university_end_work_callback
     setattr(CareerBase, _CAREER_PATCH_MARKER, True)
 
 

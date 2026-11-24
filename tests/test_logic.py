@@ -80,6 +80,9 @@ class FakeCareerBase:
     def _start_work_callback(self, scheduler, alarm_data, extra_data):
         self.original_start_called=True
         return 'career-start-result'
+    def career_start(self, *args, **kwargs):
+        self.original_career_start_called=True
+        return 'career-start-result'
     def _end_work_callback(self, alarm):
         self.original_end_called=True
         return 'career-end-result'
@@ -97,7 +100,10 @@ class FakeTimeSpan:
     def __init__(self, minutes=0): self.minutes=minutes
     def __add__(self, other): return FakeTimeSpan(self.minutes+other.minutes)
     def __le__(self, other): return self.minutes <= other.minutes
+    def __lt__(self, other): return self.minutes < other.minutes
+    def __sub__(self, other): return FakeTimeSpan(self.minutes-other.minutes)
     def in_hours(self): return self.minutes/60.0
+    def in_minutes(self): return self.minutes
 
 class FakeDateTime:
     def __init__(self, day): self.day=day
@@ -120,6 +126,10 @@ class FakeSim(FakeAgingMixin):
 
 def load_mod():
     sims4=types.ModuleType('sims4'); sims4.log=types.SimpleNamespace(Logger=FakeLogger)
+    alarms=types.ModuleType('alarms')
+    alarms.add_alarm=lambda owner, span, callback, repeating=False: types.SimpleNamespace(owner=owner, span=span, callback=callback)
+    alarms.cancel_alarm=lambda handle: None
+    sys.modules['alarms']=alarms
     services=types.ModuleType('services'); services.sim_info_manager=lambda: None
     services.current_zone_id=lambda: 77
     services.object_manager=lambda: types.SimpleNamespace(get_objects_with_tags_gen=lambda *tags: iter([FakeMailbox()]))
@@ -469,7 +479,7 @@ class EnrollmentLogicTests(unittest.TestCase):
         slot.work_early_affordance=FakeTone('GoToClassEarly')
         slot.guid64=123
         slot.career_messages=types.SimpleNamespace(career_early_warning_time=1)
-        slot.get_next_work_time=lambda: (FakeTimeSpan(30),FakeDateTime(10),None)
+        slot.get_next_work_time=lambda **kwargs: (FakeTimeSpan(30),FakeDateTime(10),None)
         return sim,slot,sim_instance
 
     def test_home_class_early_warning_is_available_one_hour_before(self):
@@ -488,6 +498,19 @@ class EnrollmentLogicTests(unittest.TestCase):
         self.assertIsInstance(args[1],FakeMailbox)
         self.assertEqual(args[2].kwargs['insert_strategy'],'FIRST')
         self.assertEqual(kwargs['career_uid'],123)
+
+    def test_direct_alarm_schedules_one_hour_before_class(self):
+        sim,slot,sim_instance=self._home_course_slot()
+        self.assertTrue(self.mod._schedule_home_class_alarm(slot))
+        handle=slot._aue_home_class_alarm_handle
+        self.assertEqual(handle.span.minutes,0)  # class is already within the one-hour window
+        self.assertTrue(callable(handle.callback))
+
+    def test_direct_alarm_pushes_preparation_for_active_sim(self):
+        sim,slot,sim_instance=self._home_course_slot()
+        self.assertTrue(self.mod._push_home_class_preparation(slot))
+        self.assertEqual(len(sim_instance.pushed),1)
+        self.assertIsInstance(sim_instance.pushed[0][0][1],FakeMailbox)
 
     def test_home_preparation_not_available_without_enrollment(self):
         sim,slot,sim_instance=self._home_course_slot()

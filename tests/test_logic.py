@@ -105,9 +105,12 @@ def load_mod():
     alarms=types.ModuleType('alarms'); alarms.add_alarm=lambda *args, **kwargs: object(); alarms.cancel_alarm=lambda handle: None
     interactions=types.ModuleType('interactions'); interactions.__path__=[]
     interactions_base=types.ModuleType('interactions.base'); interactions_base.__path__=[]
-    super_interaction=types.ModuleType('interactions.base.super_interaction')
-    class FakeSuperInteraction: pass
-    super_interaction.SuperInteraction=FakeSuperInteraction
+    immediate_interaction=types.ModuleType('interactions.base.immediate_interaction')
+    class FakeImmediateSuperInteraction:
+        def _run_interaction_gen(self, timeline):
+            if False: yield None
+            return True
+    immediate_interaction.ImmediateSuperInteraction=FakeImmediateSuperInteraction
     interactions_context=types.ModuleType('interactions.context')
     class FakeInteractionContext:
         SOURCE_SCRIPT_WITH_USER_INTENT='SCRIPT'
@@ -124,7 +127,7 @@ def load_mod():
         'alarms':alarms,
         'interactions':interactions,
         'interactions.base':interactions_base,
-        'interactions.base.super_interaction':super_interaction,
+        'interactions.base.immediate_interaction':immediate_interaction,
         'interactions.context':interactions_context,
         'interactions.priority':interactions_priority,
         'world':world,

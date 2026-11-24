@@ -8,6 +8,10 @@ from careers.career_base import CareerBase
 from careers.career_location import CareerLocation, CareerLocationServiceNpc
 from careers.career_ops import CareerTimeOffReason
 from date_and_time import create_time_span
+from sims.university.university_career_tuning import UniversityCourseCareerSlot
+from world.mailbox_owner_helper import MailboxOwnerHelper
+from interactions.context import InteractionContext, QueueInsertStrategy
+import interactions.priority
 from sims.aging.aging_mixin import AgingMixin
 from sims.sim_info_types import Age
 from sims.university.university_enums import EnrollmentStatus
@@ -173,6 +177,110 @@ def _has_university_class_on_day(sim_info, target_time=None):
     except Exception as exc:
         logger.error('Could not inspect university class schedule for Sim {}: {}', sim_info, exc)
         return False
+
+
+
+def _get_home_mailbox(sim_info):
+    """Return a mailbox only when the Sim is on their household's home lot."""
+    try:
+        household = getattr(sim_info, 'household', None)
+        if household is None:
+            return None
+        home_zone_id = getattr(household, 'home_zone_id', None)
+        current_zone_id = services.current_zone_id()
+        if not home_zone_id or home_zone_id != current_zone_id:
+            return None
+
+        mailbox_tags = tuple(getattr(MailboxOwnerHelper, 'MAILBOX_TAGS', ()) or ())
+        if not mailbox_tags:
+            logger.error('Mailbox tags are unavailable; cannot route early-class interaction.')
+            return None
+
+        object_manager = services.object_manager()
+        if object_manager is None:
+            return None
+        for mailbox in object_manager.get_objects_with_tags_gen(*mailbox_tags):
+            if getattr(mailbox, 'zone_id', current_zone_id) == current_zone_id:
+                return mailbox
+        return None
+    except Exception as exc:
+        logger.error('Could not find the residential mailbox for Sim {}: {}', sim_info, exc)
+        return None
+
+
+def _can_wait_for_class_at_home(course_career):
+    """Use the EA early-warning window, but allow the home mailbox as destination."""
+    try:
+        sim_info = getattr(course_career, 'sim_info', None)
+        if sim_info is None:
+            sim_info = getattr(course_career, '_sim_info', None)
+        if not _has_active_university_enrollment(sim_info):
+            return False
+        if getattr(course_career, 'work_early_affordance', None) is None:
+            return False
+        if _get_home_mailbox(sim_info) is None:
+            return False
+
+        early_warning_hours = getattr(
+            getattr(course_career, 'career_messages', None),
+            'career_early_warning_time',
+            0
+        )
+        if early_warning_hours <= 0:
+            return False
+        time_until_class, _, _ = course_career.get_next_work_time()
+        if time_until_class is None:
+            return False
+        return time_until_class <= create_time_span(hours=early_warning_hours)
+    except Exception as exc:
+        logger.error('Could not evaluate home early-class preparation for {}: {}', course_career, exc)
+        return False
+
+
+if not getattr(UniversityCourseCareerSlot, '_aue_home_early_class_patched', False):
+    _original_course_can_work_early = UniversityCourseCareerSlot.can_work_early
+    _original_course_go_to_work_early = UniversityCourseCareerSlot.go_to_work_early
+
+    def _aue_course_can_work_early(self):
+        # Preserve the native campus behavior. Only add the residential fallback.
+        if _original_course_can_work_early(self):
+            return True
+        return _can_wait_for_class_at_home(self)
+
+    def _aue_course_go_to_work_early(self):
+        sim_info = getattr(self, 'sim_info', None)
+        if sim_info is None:
+            sim_info = getattr(self, '_sim_info', None)
+        mailbox = _get_home_mailbox(sim_info)
+        sim = self._get_sim()
+        affordance = getattr(self, 'work_early_affordance', None)
+        if mailbox is None or sim is None or affordance is None:
+            return _original_course_go_to_work_early(self)
+
+        try:
+            queue = getattr(sim, 'queue', None)
+            if (queue is not None and
+                    queue.has_duplicate_super_affordance(affordance, sim, mailbox)):
+                return
+            context = InteractionContext(
+                sim,
+                InteractionContext.SOURCE_SCRIPT_WITH_USER_INTENT,
+                interactions.priority.Priority.High,
+                insert_strategy=QueueInsertStrategy.FIRST
+            )
+            sim.push_super_affordance(affordance, mailbox, context, career_uid=self.guid64)
+            logger.info(
+                'University early-class preparation routed to home mailbox: Sim={} Course={} Mailbox={}',
+                sim_info, self, mailbox
+            )
+            return
+        except Exception as exc:
+            logger.error('Could not route early-class preparation to home mailbox for {}: {}', sim_info, exc)
+            return _original_course_go_to_work_early(self)
+
+    UniversityCourseCareerSlot.can_work_early = _aue_course_can_work_early
+    UniversityCourseCareerSlot.go_to_work_early = _aue_course_go_to_work_early
+    setattr(UniversityCourseCareerSlot, '_aue_home_early_class_patched', True)
 
 
 def _has_active_university_enrollment(sim_info):

@@ -633,20 +633,17 @@ if not getattr(AgingMixin, _PATCH_MARKER, False):
     logger.info('Automatic University Enrollment patch loaded.')
 
 
+
 # ---------------------------------------------------------------------------
-# Independent residential pre-class preparation interaction (v0.20)
+# Tuned residential pre-class preparation interaction (v0.21)
 # ---------------------------------------------------------------------------
 
-_AUE_PREPARATION_INTERACTION_ID = 0xA2E731B4C8D91057
-_AUE_PREPARATION_ALARM_MARKER = '_aue_independent_preparation_alarm'
-_AUE_PREPARATION_PATCH_MARKER = '_aue_independent_preparation_career_start_patched'
+_AUE_PREPARATION_INTERACTION_ID = 2145051846111123295
+_AUE_PREPARATION_PATCH_MARKER = '_aue_university_preparation_trigger_patched'
 
 
 class SePrepararParaAulaInteraction(SuperInteraction):
-    """Non-tuned pie-menu interaction exposed dynamically on mailbox objects."""
-
-    INSTANCE_SUBCLASSES_ONLY = False
-    guid64 = _AUE_PREPARATION_INTERACTION_ID
+    """Tuned mailbox interaction. Its tuning is supplied by the companion package."""
 
     @classmethod
     def get_name(cls, *args, **kwargs):
@@ -659,7 +656,7 @@ class SePrepararParaAulaInteraction(SuperInteraction):
         try:
             mailbox_tags = tuple(getattr(MailboxOwnerHelper, 'MAILBOX_TAGS', ()) or ())
             target_tags = tuple(target.get_tags())
-            if any(tag in target_tags for tag in mailbox_tags):
+            if mailbox_tags and any(tag in target_tags for tag in mailbox_tags):
                 return TestResult.TRUE
         except Exception:
             pass
@@ -673,56 +670,13 @@ class SePrepararParaAulaInteraction(SuperInteraction):
         sim_info = getattr(sim, 'sim_info', None)
         wait_time = _aue_get_time_until_next_class(sim_info)
         logger.info(
-            'Independent class preparation interaction started: Sim={} Mailbox={} Wait={}',
+            'Se Preparar para a Aula started: Sim={} Mailbox={} Wait={}',
             sim, getattr(self, 'target', None), wait_time
         )
         if wait_time is not None and wait_time > create_time_span():
-            yield from element_utils.run_child(
-                timeline, elements.SleepElement(wait_time)
-            )
-        logger.info('Independent class preparation wait completed: Sim={}', sim)
+            yield from element_utils.run_child(timeline, elements.SleepElement(wait_time))
+        logger.info('Se Preparar para a Aula finished waiting: Sim={}', sim)
         return True
-
-
-def _inject_preparation_affordance_into_mailboxes():
-    """Append the custom interaction to live-object affordance results."""
-    try:
-        from objects.game_object import GameObject
-        for cls in GameObject.__mro__:
-            descriptor = cls.__dict__.get('super_affordances')
-            if descriptor is not None:
-                break
-        else:
-            logger.error('Could not locate GameObject.super_affordances descriptor.')
-            return False
-
-        marker = '_aue_preparation_affordance_hooked'
-        if getattr(GameObject, marker, False):
-            return True
-
-        def _aue_super_affordances(self, *args, **kwargs):
-            original = descriptor.__get__(self, type(self))
-            affordances = tuple(original(*args, **kwargs))
-            if any(getattr(item, 'guid64', None) == _AUE_PREPARATION_INTERACTION_ID
-                   for item in affordances):
-                return affordances
-            try:
-                if any(tag in tuple(self.get_tags())
-                       for tag in tuple(getattr(MailboxOwnerHelper, 'MAILBOX_TAGS', ()) or ())):
-                    return affordances + (SePrepararParaAulaInteraction,)
-            except Exception:
-                pass
-            return affordances
-
-        # Patch the class that owns the flexmethod, not a tuning instance.
-        owner = cls
-        owner.super_affordances = _aue_super_affordances
-        setattr(GameObject, marker, True)
-        logger.info('Independent preparation interaction injected through GameObject.super_affordances.')
-        return True
-    except Exception as exc:
-        logger.error('Could not hook mailbox affordances: {}', exc)
-        return False
 
 
 def _aue_get_time_until_next_class(sim_info):
@@ -752,7 +706,7 @@ def _aue_get_time_until_next_class(sim_info):
 
 
 def _aue_get_home_mailbox(sim_info):
-    """Return the mailbox on the Sim household's currently loaded home lot."""
+    """Find a mailbox on the Sim's currently loaded home lot."""
     try:
         household = getattr(sim_info, 'household', None)
         if household is None:
@@ -763,7 +717,7 @@ def _aue_get_home_mailbox(sim_info):
             return None
         mailbox_tags = tuple(getattr(MailboxOwnerHelper, 'MAILBOX_TAGS', ()) or ())
         if not mailbox_tags:
-            logger.error('Mailbox tags unavailable for independent preparation.')
+            logger.error('Mailbox tags unavailable; cannot start class preparation.')
             return None
         object_manager = services.object_manager()
         if object_manager is None:
@@ -772,61 +726,33 @@ def _aue_get_home_mailbox(sim_info):
             if getattr(mailbox, 'zone_id', current_zone_id) == current_zone_id:
                 return mailbox
     except Exception as exc:
-        logger.error('Could not locate home mailbox for class preparation: {}', exc)
+        logger.error('Could not locate home mailbox: {}', exc)
     return None
 
 
 def _aue_get_preparation_affordance():
-    # This is a script-defined SuperInteraction, not an XML tuning resource.
-    return SePrepararParaAulaInteraction
-
-
-def _inject_preparation_affordance_into_mailboxes():
-    """Expose the independent action on mailbox tuning for manual testing."""
+    """Resolve the interaction from the game's loaded interaction tuning manager."""
     try:
-        affordance = _aue_get_preparation_affordance()
-        if affordance is None:
-            logger.error('Preparation affordance is not loaded; mailbox injection skipped.')
-            return False
-        object_manager = services.object_manager()
-        if object_manager is None:
-            return False
-        mailbox_tags = tuple(getattr(MailboxOwnerHelper, 'MAILBOX_TAGS', ()) or ())
-        count = 0
-        for mailbox in object_manager.get_objects_with_tags_gen(*mailbox_tags):
-            tuning_class = type(mailbox)
-            current = tuple(getattr(tuning_class, '_super_affordances', ()) or ())
-            if affordance not in current:
-                tuning_class._super_affordances = current + (affordance,)
-                count += 1
-        if count:
-            logger.info('Injected independent preparation interaction into {} mailbox tuning classes.', count)
-        return True
+        from sims4.resources import Types
+        manager = services.get_instance_manager(Types.INTERACTION)
+        if manager is None:
+            return None
+        return manager.get(_AUE_PREPARATION_INTERACTION_ID)
     except Exception as exc:
-        logger.error('Could not inject preparation affordance into mailboxes: {}', exc)
-        return False
+        logger.error('Could not resolve tuned preparation interaction: {}', exc)
+        return None
 
 
-def _aue_push_independent_preparation(course_career):
-    """Push the new action directly; do not call EA's arrive-early affordance."""
+def _aue_push_preparation_interaction(course_career, mailbox):
+    """Push the tuned interaction with high priority so it interrupts current activity."""
     try:
-        sim_info = getattr(course_career, 'sim_info', None)
-        if sim_info is None:
-            sim_info = getattr(course_career, '_sim_info', None)
-        if not _has_active_university_enrollment(sim_info):
-            return False
-        _inject_preparation_affordance_into_mailboxes()
-        mailbox = _aue_get_home_mailbox(sim_info)
-        if mailbox is None:
-            logger.info('Preparation time reached, but Sim is not on the home lot: Sim={}', sim_info)
-            return False
         sim = course_career._get_sim()
         affordance = _aue_get_preparation_affordance()
         if sim is None or affordance is None:
-            logger.error('Cannot push preparation action: Sim={} Affordance={}', sim, affordance)
+            logger.error('Preparation interaction unavailable: Sim={} affordance={}', sim, affordance)
             return False
         queue = getattr(sim, 'queue', None)
-        if queue is not None and queue.has_duplicate_super_affordance(affordance, sim, mailbox):
+        if queue is not None and queue.has_duplicate_super_affordance(affordance, mailbox, sim):
             return True
         context = InteractionContext(
             sim,
@@ -836,136 +762,52 @@ def _aue_push_independent_preparation(course_career):
         )
         result = sim.push_super_affordance(affordance, mailbox, context)
         logger.info(
-            'Independent preparation action pushed: Sim={} Course={} Mailbox={} Result={}',
-            sim_info, course_career, mailbox, result
+            'Se Preparar para a Aula queued: Sim={} Career={} Mailbox={} Result={}',
+            sim, course_career, mailbox, result
         )
-        return bool(result is not False)
+        return bool(result)
     except Exception as exc:
-        logger.error('Could not push independent preparation action for {}: {}', course_career, exc)
+        logger.error('Could not queue class preparation interaction: {}', exc)
         return False
 
 
-_AUE_PREPARATION_ALARM_HANDLES = {}
+def _install_university_preparation_trigger():
+    """Replace EA's early-arrival action only when a university Sim is at home.
 
-
-def _aue_find_next_class(sim_info, offset_time=None):
-    """Find the earliest upcoming class across all four course slots."""
+    CareerBase.early_warning_callback sends the one-hour warning first, then calls
+    UniversityCourseCareerSlot.go_to_work_early when can_work_early succeeds.
+    This hook therefore uses the game's own warning event instead of a parallel alarm.
+    """
     try:
-        tracker = getattr(sim_info, 'career_tracker', None)
-        if tracker is None:
-            return None, None, None
-        careers = getattr(tracker, 'careers', {})
-        values = careers.values() if hasattr(careers, 'values') else ()
-        offset = offset_time
-        candidates = []
-        now = services.time_service().sim_now
-        for career in values:
-            if not getattr(career, 'is_course_slot', False):
-                continue
-            result = career.get_next_work_time(
-                offset_time=offset,
-                check_if_can_go_now=False,
-                consider_skipped_shifts=False,
-                ignore_pto=True
-            )
-            time_until_class = result[0] if result else None
-            if time_until_class is None:
-                continue
-            delay = time_until_class + (offset if offset is not None else create_time_span()) - create_time_span(hours=1)
-            if delay < create_time_span():
-                delay = create_time_span()
-            end_time = result[2] if len(result) > 2 else None
-            end_offset = (end_time - now) if end_time is not None else None
-            candidates.append((delay, career, end_offset))
-        if not candidates:
-            return None, None, None
-        delay, career, end_offset = min(candidates, key=lambda item: item[0])
-        return career, delay, end_offset
-    except Exception as exc:
-        logger.error('Could not find next university class for {}: {}', sim_info, exc)
-        return None, None
+        from sims.university.university_career_tuning import UniversityCourseCareerSlot
+        if getattr(UniversityCourseCareerSlot, _AUE_PREPARATION_PATCH_MARKER, False):
+            return True
 
+        original_go_to_work_early = UniversityCourseCareerSlot.go_to_work_early
 
-def _aue_schedule_preparation_alarm(sim_info, offset_time=None):
-    """Schedule one alarm per Sim, even when the Sim has four course slots."""
-    try:
-        if not _has_active_university_enrollment(sim_info):
-            return False
-        sim_id = getattr(sim_info, 'sim_id', None)
-        if sim_id is None:
-            sim_id = getattr(sim_info, 'id', None)
-        if sim_id is None:
-            return False
-
-        old_handle = _AUE_PREPARATION_ALARM_HANDLES.pop(sim_id, None)
-        if old_handle is not None:
+        def _aue_go_to_work_early(self, *args, **kwargs):
             try:
-                alarms.cancel_alarm(old_handle)
-            except Exception:
-                pass
+                sim_info = getattr(self, 'sim_info', None)
+                if sim_info is None:
+                    sim_info = getattr(self, '_sim_info', None)
+                household = getattr(sim_info, 'household', None)
+                home_zone_id = getattr(household, 'home_zone_id', None) if household is not None else None
+                if home_zone_id and home_zone_id == services.current_zone_id():
+                    mailbox = _aue_get_home_mailbox(sim_info)
+                    if mailbox is not None and _aue_push_preparation_interaction(self, mailbox):
+                        return
+            except Exception as exc:
+                logger.error('Home preparation trigger failed; falling back to EA action: {}', exc)
+            return original_go_to_work_early(self, *args, **kwargs)
 
-        course_career, delay, _ = _aue_find_next_class(sim_info, offset_time)
-        if course_career is None or delay is None:
-            return False
-
-        handle = alarms.add_alarm(
-            sim_info,
-            delay,
-            lambda _: _aue_preparation_alarm_callback(sim_info),
-            repeating=False
-        )
-        _AUE_PREPARATION_ALARM_HANDLES[sim_id] = handle
-        logger.info(
-            'Independent one-hour preparation alarm scheduled: Sim={} Course={} DelayMinutes={}',
-            sim_info, course_career, delay.in_minutes()
-        )
+        UniversityCourseCareerSlot.go_to_work_early = _aue_go_to_work_early
+        setattr(UniversityCourseCareerSlot, _AUE_PREPARATION_PATCH_MARKER, True)
+        logger.info('University one-hour warning trigger installed.')
         return True
     except Exception as exc:
-        logger.error('Could not schedule independent preparation alarm for {}: {}', sim_info, exc)
+        logger.error('Could not install university preparation trigger: {}', exc)
         return False
 
 
-def _aue_preparation_alarm_callback(sim_info):
-    try:
-        sim_id = getattr(sim_info, 'sim_id', None)
-        if sim_id is None:
-            sim_id = getattr(sim_info, 'id', None)
-        if sim_id is not None:
-            _AUE_PREPARATION_ALARM_HANDLES.pop(sim_id, None)
-        course_career, _, end_offset = _aue_find_next_class(sim_info)
-        if course_career is not None:
-            _aue_push_independent_preparation(course_career)
-        # Schedule the next alarm after the current class ends, not after an
-        # arbitrary six-hour offset that could skip another course slot.
-        if end_offset is not None:
-            _aue_schedule_preparation_alarm(
-                sim_info, offset_time=end_offset + create_time_span(minutes=1)
-            )
-    except Exception as exc:
-        logger.error('Independent preparation alarm callback failed for {}: {}', sim_info, exc)
-
-
-def _schedule_loaded_university_classes():
-    try:
-        manager = services.sim_info_manager()
-        if manager is None:
-            return
-        for sim_info in manager.get_all():
-            _aue_schedule_preparation_alarm(sim_info)
-    except Exception as exc:
-        logger.error('Could not schedule independent university preparation alarms: {}', exc)
-
-
-if not getattr(CareerBase, _AUE_PREPARATION_PATCH_MARKER, False):
-    _aue_original_career_start_for_preparation = CareerBase.career_start
-
-    def _aue_career_start_with_independent_preparation(self, *args, **kwargs):
-        result = _aue_original_career_start_for_preparation(self, *args, **kwargs)
-        if getattr(self, 'is_course_slot', False):
-            _aue_schedule_preparation_alarm(getattr(self, 'sim_info', None))
-        return result
-
-    CareerBase.career_start = _aue_career_start_with_independent_preparation
-    setattr(CareerBase, _AUE_PREPARATION_PATCH_MARKER, True)
-
-logger.info('Independent Se Preparar para a Aula interaction loaded.')
+_install_university_preparation_trigger()
+logger.info('Tuned Se Preparar para a Aula interaction loaded.')

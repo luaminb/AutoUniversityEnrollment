@@ -19,6 +19,7 @@ logger = sims4.log.Logger('AutoUniversityEnrollment')
 _PATCH_MARKER = '_auto_university_enrollment_patched'
 _ZONE_PATCH_MARKER = '_auto_university_enrollment_zone_patched'
 _CAREER_PATCH_MARKER = '_auto_university_enrollment_career_patched'
+_CAREER_EARLY_WARNING_PATCH_MARKER = '_auto_university_enrollment_early_warning_patched'
 _CAREER_LOCATION_PATCH_MARKER = '_auto_university_enrollment_career_location_patched'
 _startup_sweep_completed = False
 
@@ -324,15 +325,23 @@ def _enroll_existing_young_adults():
 
 
 if not getattr(CareerBase, _CAREER_PATCH_MARKER, False):
+    _original_early_warning_callback = CareerBase.early_warning_callback
     _original_start_work_callback = CareerBase._start_work_callback
     _original_end_work_callback = CareerBase._end_work_callback
 
-    def _auto_university_start_work_callback(self, scheduler, alarm_data, extra_data):
+    def _auto_university_early_warning_callback(self):
+        # Request leave after the vanilla NPC warning logic, but before the shift starts.
         self._aue_academic_day_off = False
+        result = _original_early_warning_callback(self)
         try:
             _prepare_academic_day_off(self)
         except Exception as exc:
-            logger.error('Unexpected academic leave error for career {}: {}', self, exc)
+            logger.error('Unexpected academic leave error during early warning for career {}: {}', self, exc)
+        return result
+
+    def _auto_university_start_work_callback(self, scheduler, alarm_data, extra_data):
+        # Do not clear _aue_academic_day_off here: it must survive until the
+        # end-of-shift callback so the NPC is not dispatched and is paid.
         return _original_start_work_callback(self, scheduler, alarm_data, extra_data)
 
     def _auto_university_end_work_callback(self, alarm):
@@ -348,8 +357,11 @@ if not getattr(CareerBase, _CAREER_PATCH_MARKER, False):
                     self.handle_career_loot(duration.in_hours())
             except Exception as exc:
                 logger.error('Could not pay NPC academic leave for career {}: {}', self, exc)
-        return _original_end_work_callback(self, alarm)
+        result = _original_end_work_callback(self, alarm)
+        self._aue_academic_day_off = False
+        return result
 
+    CareerBase.early_warning_callback = _auto_university_early_warning_callback
     CareerBase._start_work_callback = _auto_university_start_work_callback
     CareerBase._end_work_callback = _auto_university_end_work_callback
     setattr(CareerBase, _CAREER_PATCH_MARKER, True)

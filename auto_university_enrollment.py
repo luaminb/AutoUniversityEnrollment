@@ -472,6 +472,59 @@ if not getattr(CareerBase, _CAREER_DRAMA_TIME_OFF_PATCH_MARKER, False):
     setattr(CareerBase, _CAREER_DRAMA_TIME_OFF_PATCH_MARKER, True)
 
 
+_CAREER_ATTEND_WORK_PATCH_MARKER = '_auto_university_enrollment_attend_work_patched'
+
+if not getattr(CareerBase, _CAREER_ATTEND_WORK_PATCH_MARKER, False):
+    _original_attend_work = CareerBase.attend_work
+
+    def _auto_university_attend_work(self, *args, **kwargs):
+        # Final guard: evaluate the actual work-start call, not only the
+        # earlier drama-node/early-warning query.
+        if not getattr(self, 'is_course_slot', False):
+            sim_info = getattr(self, 'sim_info', None)
+            if sim_info is None:
+                sim_info = getattr(self, '_sim_info', None)
+
+            if _is_unplayed_npc_with_active_degree(sim_info):
+                try:
+                    now = services.time_service().sim_now
+                    if _has_university_class_on_day(sim_info, now):
+                        duration = getattr(self, '_current_work_duration', None)
+                        if duration is None:
+                            logger.error(
+                                'Academic leave matched at attend_work, but shift duration is unavailable: Sim={} Career={}',
+                                sim_info, self
+                            )
+                            # Do not send the Sim to work merely because the
+                            # duration field was unavailable; suppress attendance.
+                            self._aue_academic_day_off = True
+                            return None
+
+                        if not getattr(self, '_aue_academic_day_off_paid', False):
+                            self.handle_career_loot(duration.in_hours())
+                            self._aue_academic_day_off_paid = True
+
+                        self._aue_academic_day_off = True
+                        logger.info(
+                            'Academic shift suppressed at attend_work; scheduled pay processed: Sim={} Career={} Hours={}',
+                            sim_info, self, duration.in_hours()
+                        )
+                        return None
+                except Exception as exc:
+                    logger.error(
+                        'Final academic leave check failed at attend_work for career {}: {}',
+                        self, exc
+                    )
+
+        # Clear stale state on a later non-class workday.
+        self._aue_academic_day_off = False
+        self._aue_academic_day_off_paid = False
+        return _original_attend_work(self, *args, **kwargs)
+
+    CareerBase.attend_work = _auto_university_attend_work
+    setattr(CareerBase, _CAREER_ATTEND_WORK_PATCH_MARKER, True)
+
+
 if not getattr(CareerBase, _CAREER_PATCH_MARKER, False):
     _original_end_work_callback = CareerBase._end_work_callback
 
@@ -481,12 +534,14 @@ if not getattr(CareerBase, _CAREER_PATCH_MARKER, False):
         # end logic and its non-PTO FAKE_SICK time-off classification.
         sim_info = getattr(self, '_sim_info', None)
         if (getattr(self, '_aue_academic_day_off', False)
+                and not getattr(self, '_aue_academic_day_off_paid', False)
                 and sim_info is not None and sim_info.is_npc
                 and not getattr(self, 'currently_at_work', False)):
             try:
                 duration = getattr(self, '_current_work_duration', None)
                 if duration is not None:
                     self.handle_career_loot(duration.in_hours())
+                    self._aue_academic_day_off_paid = True
                     logger.info(
                         'Paid NPC academic day off: Sim={} Career={} Hours={}',
                         sim_info, self, duration.in_hours()
@@ -495,6 +550,7 @@ if not getattr(CareerBase, _CAREER_PATCH_MARKER, False):
                 logger.error('Could not pay NPC academic leave for career {}: {}', self, exc)
         result = _original_end_work_callback(self, alarm)
         self._aue_academic_day_off = False
+        self._aue_academic_day_off_paid = False
         return result
 
     CareerBase._end_work_callback = _auto_university_end_work_callback

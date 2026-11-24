@@ -2,6 +2,7 @@
 # Requires Discover University and a Python 3.7-compatible TS4 runtime.
 
 import services
+from away_actions.away_action_tracker import AwayActionTracker
 import sims4.log
 from careers.career_base import CareerBase
 from careers.career_location import CareerLocation, CareerLocationServiceNpc
@@ -20,6 +21,8 @@ _PATCH_MARKER = '_auto_university_enrollment_patched'
 _ZONE_PATCH_MARKER = '_auto_university_enrollment_zone_patched'
 _CAREER_PATCH_MARKER = '_auto_university_enrollment_career_patched'
 _CAREER_DRAMA_TIME_OFF_PATCH_MARKER = '_auto_university_enrollment_drama_time_off_patched'
+_AWAY_ACTION_TRACKER_PATCH_MARKER = '_auto_university_enrollment_away_action_tracker_patched'
+_CAREER_TONE_PATCH_MARKER = '_auto_university_enrollment_career_tone_patched'
 _startup_sweep_completed = False
 
 
@@ -330,6 +333,72 @@ def _enroll_existing_young_adults():
             logger.error('Startup enrollment failed for Sim {}: {}', sim_info, exc)
 
     logger.info('Startup sweep finished. Young adults checked={} enrolled={}', checked, enrolled)
+
+
+
+def _find_take_notes_tone(career):
+    """Find the tuned university away action that represents Take Notes."""
+    try:
+        for tone in career.get_available_tones_gen():
+            tone_name = _tuning_name(tone)
+            if 'takenotes' in tone_name:
+                return tone
+    except Exception as exc:
+        logger.error('Could not inspect university class tones for career {}: {}', career, exc)
+    return None
+
+
+# EA disables AwayActionTracker for every NPC. Temporarily permit it only
+# during the one controlled application of the university Take Notes tone.
+if not getattr(AwayActionTracker, _AWAY_ACTION_TRACKER_PATCH_MARKER, False):
+    _original_is_sim_info_valid_to_run_away_actions = AwayActionTracker.is_sim_info_valid_to_run_away_actions
+
+    def _auto_university_allow_scoped_npc_away_action(self):
+        if getattr(self, '_aue_allow_university_take_notes', False):
+            return True
+        return _original_is_sim_info_valid_to_run_away_actions(self)
+
+    AwayActionTracker.is_sim_info_valid_to_run_away_actions = _auto_university_allow_scoped_npc_away_action
+    setattr(AwayActionTracker, _AWAY_ACTION_TRACKER_PATCH_MARKER, True)
+
+
+if not getattr(CareerBase, _CAREER_TONE_PATCH_MARKER, False):
+    _original_start_tones = CareerBase.start_tones
+
+    def _auto_university_start_tones(self):
+        sim_info = getattr(self, 'sim_info', None)
+        if (getattr(self, 'is_course_slot', False)
+                and _is_unplayed_npc_with_active_degree(sim_info)):
+            tracker = getattr(sim_info, 'away_action_tracker', None)
+            if tracker is None:
+                logger.error('No AwayActionTracker for enrolled NPC Sim {}', sim_info)
+                return
+            take_notes_tone = _find_take_notes_tone(self)
+            if take_notes_tone is None:
+                logger.error('Take Notes tone was not found for university course career {}', self)
+                return
+
+            try:
+                tracker.add_on_away_action_started_callback(self._on_tone_started)
+                tracker.add_on_away_action_ended_callback(self._on_tone_ended)
+                tracker._aue_allow_university_take_notes = True
+                try:
+                    tracker.create_and_apply_away_action(take_notes_tone)
+                finally:
+                    tracker._aue_allow_university_take_notes = False
+                logger.info(
+                    'NPC university class tone set to Take Notes: Sim={} Career={} Tone={}',
+                    sim_info, self, take_notes_tone
+                )
+                return
+            except Exception as exc:
+                logger.error('Could not apply Take Notes tone for NPC Sim {}: {}', sim_info, exc)
+                return
+
+        return _original_start_tones(self)
+
+    CareerBase.start_tones = _auto_university_start_tones
+    setattr(CareerBase, _CAREER_TONE_PATCH_MARKER, True)
 
 
 if not getattr(CareerBase, _CAREER_DRAMA_TIME_OFF_PATCH_MARKER, False):

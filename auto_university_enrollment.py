@@ -1,4 +1,5 @@
 # The Sims 4 - Automatic University Enrollment for unplayed NPCs
+# v0.19: independent residential pre-class alarms
 # Requires Discover University and a Python 3.7-compatible TS4 runtime.
 
 import services

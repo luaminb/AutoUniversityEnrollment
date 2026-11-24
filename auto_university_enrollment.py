@@ -848,7 +848,7 @@ def _aue_push_independent_preparation(course_career):
 _AUE_PREPARATION_ALARM_HANDLES = {}
 
 
-def _aue_find_next_class(sim_info, offset_hours=0):
+def _aue_find_next_class(sim_info, offset_time=None):
     """Find the earliest upcoming class across all four course slots."""
     try:
         tracker = getattr(sim_info, 'career_tracker', None)
@@ -856,8 +856,9 @@ def _aue_find_next_class(sim_info, offset_hours=0):
             return None, None
         careers = getattr(tracker, 'careers', {})
         values = careers.values() if hasattr(careers, 'values') else ()
-        offset = create_time_span(hours=offset_hours) if offset_hours else None
+        offset = offset_time
         candidates = []
+        now = services.time_service().sim_now
         for career in values:
             if not getattr(career, 'is_course_slot', False):
                 continue
@@ -873,17 +874,19 @@ def _aue_find_next_class(sim_info, offset_hours=0):
             delay = time_until_class + (offset if offset is not None else create_time_span()) - create_time_span(hours=1)
             if delay < create_time_span():
                 delay = create_time_span()
-            candidates.append((delay, career))
+            end_time = result[2] if len(result) > 2 else None
+            end_offset = (end_time - now) if end_time is not None else None
+            candidates.append((delay, career, end_offset))
         if not candidates:
             return None, None
-        delay, career = min(candidates, key=lambda item: item[0])
-        return career, delay
+        delay, career, end_offset = min(candidates, key=lambda item: item[0])
+        return career, delay, end_offset
     except Exception as exc:
         logger.error('Could not find next university class for {}: {}', sim_info, exc)
         return None, None
 
 
-def _aue_schedule_preparation_alarm(sim_info, offset_hours=0):
+def _aue_schedule_preparation_alarm(sim_info, offset_time=None):
     """Schedule one alarm per Sim, even when the Sim has four course slots."""
     try:
         if not _has_active_university_enrollment(sim_info):
@@ -901,7 +904,7 @@ def _aue_schedule_preparation_alarm(sim_info, offset_hours=0):
             except Exception:
                 pass
 
-        course_career, delay = _aue_find_next_class(sim_info, offset_hours)
+        course_career, delay, _ = _aue_find_next_class(sim_info, offset_time)
         if course_career is None or delay is None:
             return False
 
@@ -929,12 +932,15 @@ def _aue_preparation_alarm_callback(sim_info):
             sim_id = getattr(sim_info, 'id', None)
         if sim_id is not None:
             _AUE_PREPARATION_ALARM_HANDLES.pop(sim_id, None)
-        course_career, _ = _aue_find_next_class(sim_info)
+        course_career, _, end_offset = _aue_find_next_class(sim_info)
         if course_career is not None:
             _aue_push_independent_preparation(course_career)
-        # Scan every course slot again after the current class, avoiding
-        # duplicate alarms for Sims enrolled in multiple courses.
-        _aue_schedule_preparation_alarm(sim_info, offset_hours=6)
+        # Schedule the next alarm after the current class ends, not after an
+        # arbitrary six-hour offset that could skip another course slot.
+        if end_offset is not None:
+            _aue_schedule_preparation_alarm(
+                sim_info, offset_time=end_offset + create_time_span(minutes=1)
+            )
     except Exception as exc:
         logger.error('Independent preparation alarm callback failed for {}: {}', sim_info, exc)
 

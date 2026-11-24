@@ -4,7 +4,6 @@
 import services
 import sims4.log
 from careers.career_base import CareerBase
-from careers.career_location import CareerLocation
 from careers.career_ops import CareerTimeOffReason
 from date_and_time import create_time_span
 from sims.aging.aging_mixin import AgingMixin
@@ -19,8 +18,7 @@ logger = sims4.log.Logger('AutoUniversityEnrollment')
 _PATCH_MARKER = '_auto_university_enrollment_patched'
 _ZONE_PATCH_MARKER = '_auto_university_enrollment_zone_patched'
 _CAREER_PATCH_MARKER = '_auto_university_enrollment_career_patched'
-_CAREER_EARLY_WARNING_PATCH_MARKER = '_auto_university_enrollment_early_warning_patched'
-_CAREER_LOCATION_PATCH_MARKER = '_auto_university_enrollment_career_location_patched'
+_CAREER_DRAMA_TIME_OFF_PATCH_MARKER = '_auto_university_enrollment_drama_time_off_patched'
 _startup_sweep_completed = False
 
 
@@ -324,29 +322,58 @@ def _enroll_existing_young_adults():
     logger.info('Startup sweep finished. Young adults checked={} enrolled={}', checked, enrolled)
 
 
+if not getattr(CareerBase, _CAREER_DRAMA_TIME_OFF_PATCH_MARKER, False):
+    _original_get_drama_node_time_off_reason = CareerBase._get_drama_node_time_off_reason
+
+    def _auto_university_get_drama_node_time_off_reason(self, end_time=None):
+        # Preserve every native drama-node decision first (holidays, events, etc.).
+        reason = _original_get_drama_node_time_off_reason(self, end_time)
+        if reason != CareerTimeOffReason.NO_TIME_OFF:
+            return reason
+
+        try:
+            # University course slots are class schedules, not work shifts.
+            if getattr(self, 'is_course_slot', False):
+                return CareerTimeOffReason.NO_TIME_OFF
+
+            sim_info = getattr(self, 'sim_info', None)
+            if sim_info is None:
+                sim_info = getattr(self, '_sim_info', None)
+
+            if not _is_unplayed_npc_with_active_degree(sim_info):
+                return CareerTimeOffReason.NO_TIME_OFF
+
+            # Match the workday being evaluated. Early-warning is scheduled
+            # before the shift, so sim_now identifies the current workday.
+            if not _has_university_class_on_day(sim_info):
+                return CareerTimeOffReason.NO_TIME_OFF
+
+            # Use the game's native paid absence reason. Unlike PTO this does
+            # not consume the Sim's accrued time-off balance.
+            self._aue_academic_day_off = True
+            logger.info(
+                'Academic day off supplied through native drama-node query: Sim={} Career={}',
+                sim_info, self
+            )
+            return CareerTimeOffReason.FAKE_SICK
+        except Exception as exc:
+            logger.error(
+                'Could not evaluate academic day off in drama-node query for career {}: {}',
+                self, exc
+            )
+            return CareerTimeOffReason.NO_TIME_OFF
+
+    CareerBase._get_drama_node_time_off_reason = _auto_university_get_drama_node_time_off_reason
+    setattr(CareerBase, _CAREER_DRAMA_TIME_OFF_PATCH_MARKER, True)
+
+
 if not getattr(CareerBase, _CAREER_PATCH_MARKER, False):
-    _original_early_warning_callback = CareerBase.early_warning_callback
-    _original_start_work_callback = CareerBase._start_work_callback
     _original_end_work_callback = CareerBase._end_work_callback
 
-    def _auto_university_early_warning_callback(self):
-        # Request leave after the vanilla NPC warning logic, but before the shift starts.
-        self._aue_academic_day_off = False
-        result = _original_early_warning_callback(self)
-        try:
-            _prepare_academic_day_off(self)
-        except Exception as exc:
-            logger.error('Unexpected academic leave error during early warning for career {}: {}', self, exc)
-        return result
-
-    def _auto_university_start_work_callback(self, scheduler, alarm_data, extra_data):
-        # Do not clear _aue_academic_day_off here: it must survive until the
-        # end-of-shift callback so the NPC is not dispatched and is paid.
-        return _original_start_work_callback(self, scheduler, alarm_data, extra_data)
-
     def _auto_university_end_work_callback(self, alarm):
-        # NPC careers skip handle_career_loot on non-attendance in the vanilla
-        # callback. Pay their full scheduled shift explicitly for academic leave.
+        # EA skips career loot for NPCs who did not attend the rabbit hole.
+        # Pay the scheduled duration once, while retaining the native session
+        # end logic and its non-PTO FAKE_SICK time-off classification.
         sim_info = getattr(self, '_sim_info', None)
         if (getattr(self, '_aue_academic_day_off', False)
                 and sim_info is not None and sim_info.is_npc
@@ -355,38 +382,18 @@ if not getattr(CareerBase, _CAREER_PATCH_MARKER, False):
                 duration = getattr(self, '_current_work_duration', None)
                 if duration is not None:
                     self.handle_career_loot(duration.in_hours())
+                    logger.info(
+                        'Paid NPC academic day off: Sim={} Career={} Hours={}',
+                        sim_info, self, duration.in_hours()
+                    )
             except Exception as exc:
                 logger.error('Could not pay NPC academic leave for career {}: {}', self, exc)
         result = _original_end_work_callback(self, alarm)
         self._aue_academic_day_off = False
         return result
 
-    CareerBase.early_warning_callback = _auto_university_early_warning_callback
-    CareerBase._start_work_callback = _auto_university_start_work_callback
     CareerBase._end_work_callback = _auto_university_end_work_callback
     setattr(CareerBase, _CAREER_PATCH_MARKER, True)
-
-
-if not getattr(CareerLocation, _CAREER_LOCATION_PATCH_MARKER, False):
-    _original_on_npc_start_work = CareerLocation.on_npc_start_work
-
-    def _auto_university_npc_start_work(self):
-        career = getattr(self, '_career', None)
-        if career is not None:
-            # Final safety net: some NPC careers do not execute the early-warning
-            # callback. At this point the shift session exists, but the Sim has
-            # not yet been sent to the workplace/rabbit hole.
-            if not getattr(career, '_aue_academic_day_off', False):
-                try:
-                    _prepare_academic_day_off(career)
-                except Exception as exc:
-                    logger.error('Could not evaluate academic leave at NPC work dispatch for career {}: {}', career, exc)
-            if getattr(career, '_aue_academic_day_off', False):
-                return
-        return _original_on_npc_start_work(self)
-
-    CareerLocation.on_npc_start_work = _auto_university_npc_start_work
-    setattr(CareerLocation, _CAREER_LOCATION_PATCH_MARKER, True)
 
 
 if not getattr(Zone, _ZONE_PATCH_MARKER, False):

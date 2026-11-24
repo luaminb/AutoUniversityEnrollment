@@ -372,8 +372,17 @@ if not getattr(CareerLocation, _CAREER_LOCATION_PATCH_MARKER, False):
 
     def _auto_university_npc_start_work(self):
         career = getattr(self, '_career', None)
-        if career is not None and getattr(career, '_aue_academic_day_off', False):
-            return
+        if career is not None:
+            # Final safety net: some NPC careers do not execute the early-warning
+            # callback. At this point the shift session exists, but the Sim has
+            # not yet been sent to the workplace/rabbit hole.
+            if not getattr(career, '_aue_academic_day_off', False):
+                try:
+                    _prepare_academic_day_off(career)
+                except Exception as exc:
+                    logger.error('Could not evaluate academic leave at NPC work dispatch for career {}: {}', career, exc)
+            if getattr(career, '_aue_academic_day_off', False):
+                return
         return _original_on_npc_start_work(self)
 
     CareerLocation.on_npc_start_work = _auto_university_npc_start_work

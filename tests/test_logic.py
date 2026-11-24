@@ -45,6 +45,7 @@ class FakeAwayActionTracker:
 
 class FakeCareerBase:
     def request_day_off(self, reason): self.requested_day_off_reason=reason
+    def career_start(self, *args, **kwargs): return 'career-start-result'
     def start_tones(self): self.original_start_tones_called=True
     def get_available_tones_gen(self): return iter(getattr(self, 'available_tones', ()))
     def _on_tone_started(self, tone): self.started_tone=tone
@@ -101,6 +102,34 @@ class FakeSim(FakeAgingMixin):
 def load_mod():
     sims4=types.ModuleType('sims4'); sims4.log=types.SimpleNamespace(Logger=FakeLogger)
     services=types.ModuleType('services'); services.sim_info_manager=lambda: None
+    alarms=types.ModuleType('alarms'); alarms.add_alarm=lambda *args, **kwargs: object(); alarms.cancel_alarm=lambda handle: None
+    interactions=types.ModuleType('interactions'); interactions.__path__=[]
+    interactions_base=types.ModuleType('interactions.base'); interactions_base.__path__=[]
+    super_interaction=types.ModuleType('interactions.base.super_interaction')
+    class FakeSuperInteraction: pass
+    super_interaction.SuperInteraction=FakeSuperInteraction
+    interactions_context=types.ModuleType('interactions.context')
+    class FakeInteractionContext:
+        SOURCE_SCRIPT_WITH_USER_INTENT='SCRIPT'
+        def __init__(self,*args,**kwargs): pass
+    interactions_context.InteractionContext=FakeInteractionContext
+    interactions_context.QueueInsertStrategy=types.SimpleNamespace(FIRST='FIRST')
+    interactions_priority=types.ModuleType('interactions.priority')
+    interactions_priority.Priority=types.SimpleNamespace(High='HIGH')
+    interactions.priority=interactions_priority
+    world=types.ModuleType('world'); world.__path__=[]
+    mailbox_owner_helper=types.ModuleType('world.mailbox_owner_helper')
+    mailbox_owner_helper.MailboxOwnerHelper=types.SimpleNamespace(MAILBOX_TAGS=())
+    sys.modules.update({
+        'alarms':alarms,
+        'interactions':interactions,
+        'interactions.base':interactions_base,
+        'interactions.base.super_interaction':super_interaction,
+        'interactions.context':interactions_context,
+        'interactions.priority':interactions_priority,
+        'world':world,
+        'world.mailbox_owner_helper':mailbox_owner_helper
+    })
     services.time_service=lambda: types.SimpleNamespace(sim_now=FakeDateTime(10))
     careers=types.ModuleType('careers'); careers.__path__=[]
     away_actions=types.ModuleType('away_actions'); away_actions.__path__=[]

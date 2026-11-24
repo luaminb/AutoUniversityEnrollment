@@ -50,6 +50,7 @@ class FakeCareerBase:
     def _on_tone_started(self, tone): self.started_tone=tone
     def _on_tone_ended(self, tone): self.ended_tone=tone
     def handle_career_loot(self, hours): self.paid_hours=hours
+    def attend_work(self): self.original_attend_work_called=True; return 'attend-work-result'
     def _get_drama_node_time_off_reason(self, end_time=None):
         return 'NO_TIME_OFF'
     def early_warning_callback(self):
@@ -352,6 +353,30 @@ class EnrollmentLogicTests(unittest.TestCase):
         sim.degree_tracker.status=0
         self.assertEqual(career._get_drama_node_time_off_reason(),'NO_TIME_OFF')
         self.assertFalse(getattr(career,'_aue_academic_day_off',False))
+
+    def test_attend_work_final_guard_suppresses_npc_and_pays_once(self):
+        sim,career=self._academic_career()
+        self.assertIsNone(career.attend_work())
+        self.assertFalse(getattr(career,'original_attend_work_called',False))
+        self.assertEqual(career.paid_hours,8.0)
+        self.assertTrue(career._aue_academic_day_off)
+        self.assertTrue(career._aue_academic_day_off_paid)
+        # A duplicate invocation must not issue a second payment.
+        self.assertIsNone(career.attend_work())
+        self.assertEqual(career.paid_hours,8.0)
+
+    def test_attend_work_continues_on_non_class_day(self):
+        sim,career=self._academic_career(class_day=11)
+        self.assertEqual(career.attend_work(),'attend-work-result')
+        self.assertTrue(career.original_attend_work_called)
+        self.assertFalse(getattr(career,'_aue_academic_day_off',False))
+
+    def test_attend_work_does_not_block_played_sim(self):
+        sim,career=self._academic_career()
+        sim.is_played_sim=True
+        sim.household.is_played_household=True
+        self.assertEqual(career.attend_work(),'attend-work-result')
+        self.assertTrue(career.original_attend_work_called)
 
     def test_npc_academic_leave_receives_full_shift_pay(self):
         sim,career=self._academic_career()

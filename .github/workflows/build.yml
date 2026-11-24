@@ -41,12 +41,7 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Build and validate tuning package
-        run: |
-          dotnet run --project package-builder/PackageBuilder.csproj -- \\
-            tuning/AUE_SePrepararParaAula.xml \\
-            tuning/AUE_SePrepararParaAula_XmlInjector.xml \\
-            AutoUniversityEnrollment_Preparation.package \\
-            "Se Preparar para a Aula"
+        run: dotnet run --project package-builder/PackageBuilder.csproj -- tuning/AUE_SePrepararParaAula.xml tuning/AUE_SePrepararParaAula_XmlInjector.xml AutoUniversityEnrollment_Preparation.package "Se Preparar para a Aula"
 
       - name: Upload installable mod files
         uses: actions/upload-artifact@v4

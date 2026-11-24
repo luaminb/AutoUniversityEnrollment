@@ -40,8 +40,7 @@ static byte[] BuildStbl(uint key, string value)
     writer.Write(Encoding.ASCII.GetBytes("STBL"));
     writer.Write((ushort)5);
     writer.Write((byte)0);
-    writer.Write((ulong)1);
-    writer.Write((ushort)0);
+    writer.Write((uint)1);
     writer.Write((uint)text.Length);
     writer.Write(key);
     writer.Write((byte)0);

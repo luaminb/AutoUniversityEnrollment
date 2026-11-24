@@ -341,12 +341,32 @@ class EnrollmentLogicTests(unittest.TestCase):
         self.assertEqual(career._get_drama_node_time_off_reason(),'NO_TIME_OFF')
         self.assertFalse(getattr(career,'_aue_academic_day_off',False))
 
-    def test_played_sim_does_not_receive_academic_leave(self):
+    def test_active_player_sim_receives_academic_leave(self):
         sim,career=self._academic_career()
+        sim.is_npc=False
+        sim.is_player_sim=True
         sim.is_played_sim=True
+        sim.is_selectable=True
+        sim.household.is_player_household=True
         sim.household.is_played_household=True
-        self.assertEqual(career._get_drama_node_time_off_reason(),'NO_TIME_OFF')
-        self.assertFalse(getattr(career,'_aue_academic_day_off',False))
+        self.assertEqual(career._get_drama_node_time_off_reason(),'FAKE_SICK')
+        self.assertTrue(career._aue_academic_day_off)
+
+    def test_active_player_sim_attend_work_is_suppressed_and_paid_once(self):
+        sim,career=self._academic_career()
+        sim.is_npc=False
+        sim.is_player_sim=True
+        sim.is_played_sim=True
+        sim.is_selectable=True
+        sim.household.is_player_household=True
+        sim.household.is_played_household=True
+        self.assertIsNone(career.attend_work())
+        self.assertFalse(getattr(career,'original_attend_work_called',False))
+        self.assertEqual(career.paid_hours,8.0)
+        self.assertTrue(career._aue_academic_day_off)
+        self.assertTrue(career._aue_academic_day_off_paid)
+        self.assertIsNone(career.attend_work())
+        self.assertEqual(career.paid_hours,8.0)
 
     def test_unenrolled_sim_does_not_receive_academic_leave(self):
         sim,career=self._academic_career()

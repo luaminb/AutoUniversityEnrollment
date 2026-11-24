@@ -391,12 +391,18 @@ class EnrollmentLogicTests(unittest.TestCase):
         self.assertTrue(career.original_attend_work_called)
         self.assertFalse(getattr(career,'_aue_academic_day_off',False))
 
-    def test_attend_work_does_not_block_played_sim(self):
+    def test_attend_work_blocks_played_sim_on_class_day(self):
         sim,career=self._academic_career()
+        sim.is_npc=False
+        sim.is_player_sim=True
         sim.is_played_sim=True
+        sim.is_selectable=True
+        sim.household.is_player_household=True
         sim.household.is_played_household=True
-        self.assertEqual(career.attend_work(),'attend-work-result')
-        self.assertTrue(career.original_attend_work_called)
+        self.assertIsNone(career.attend_work())
+        self.assertFalse(getattr(career,'original_attend_work_called',False))
+        self.assertTrue(career._aue_academic_day_off)
+        self.assertFalse(hasattr(career,'paid_hours'))
 
     def test_npc_academic_leave_receives_full_shift_pay(self):
         sim,career=self._academic_career()

@@ -265,4 +265,22 @@ class EnrollmentLogicTests(unittest.TestCase):
         self.assertIsNone(location.on_npc_start_work())
         self.assertFalse(getattr(location,'original_npc_start_called',False))
 
+    def test_npc_dispatch_requests_leave_even_without_early_warning(self):
+        sim=FakeSim()
+        sim.degree_tracker.status=1
+        sim.career_tracker.careers={1:FakeCourseCareer(10)}
+        career=FakeCareerBase()
+        career.sim_info=sim
+        career._sim_info=sim
+        career.is_course_slot=False
+        career._at_work=False
+        career.requested_day_off=False
+        career.taking_day_off=False
+        location=FakeCareerLocation()
+        location._career=career
+        self.assertIsNone(location.on_npc_start_work())
+        self.assertTrue(career._aue_academic_day_off)
+        self.assertEqual(career.requested_day_off_reason,'FAKE_SICK')
+        self.assertFalse(getattr(location,'original_npc_start_called',False))
+
 if __name__=='__main__': unittest.main()

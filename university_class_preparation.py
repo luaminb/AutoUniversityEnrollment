@@ -30,8 +30,8 @@ class SePrepararParaAulaInteraction(ImmediateSuperInteraction):
         sim = getattr(self, 'sim', None)
         wait_time = _ucp_time_until_next_class(getattr(sim, 'sim_info', None))
         logger.info('Preparation interaction started: Sim={} Wait={}', sim, wait_time)
-        if wait_time is not None and wait_time > create_time_span():
-            yield from element_utils.run_child(timeline, elements.SleepElement(wait_time))
+        if wait_time is not None and wait_time > create_time_span(minutes=1):
+            yield timeline.run_child(elements.SleepElement(wait_time))
         logger.info('Preparation interaction finished: Sim={}', sim)
         return True
 
@@ -45,7 +45,7 @@ def _ucp_time_until_next_class(sim_info):
                 continue
             result = career.get_next_work_time(check_if_can_go_now=False, consider_skipped_shifts=False, ignore_pto=True)
             delay = result[0] if result else None
-            if delay is not None and delay > create_time_span():
+            if delay is not None and delay > create_time_span(minutes=1):
                 delays.append(delay)
         return min(delays) if delays else None
     except Exception as exc:

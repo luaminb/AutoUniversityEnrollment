@@ -404,7 +404,7 @@ if not getattr(CareerBase, _CAREER_TONE_PATCH_MARKER, False):
                 finally:
                     tracker._aue_allow_university_take_notes = False
                 logger.info(
-                    'University class tone set to Take Notes: Sim={} Career={} Tone={},
+                    'University class tone set to Take Notes: Sim={} Career={} Tone={}',
                     sim_info, self, take_notes_tone
                 )
                 return

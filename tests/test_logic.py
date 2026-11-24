@@ -28,6 +28,9 @@ class FakeAgingMixin:
 class FakeCareerBase:
     def request_day_off(self, reason): self.requested_day_off_reason=reason
     def handle_career_loot(self, hours): self.paid_hours=hours
+    def early_warning_callback(self):
+        self.original_early_warning_called=True
+        return 'early-warning-result'
     def _start_work_callback(self, scheduler, alarm_data, extra_data):
         self.original_start_called=True
         return 'career-start-result'
@@ -168,6 +171,23 @@ class EnrollmentLogicTests(unittest.TestCase):
         state, callback=zone.registered_callback
         self.assertEqual(state,'RUNNING')
         self.assertTrue(callable(callback))
+
+    def test_early_warning_requests_leave_before_shift(self):
+        sim=FakeSim()
+        sim.degree_tracker.status=1
+        sim.career_tracker.careers={1:FakeCourseCareer(10)}
+        career=FakeCareerBase()
+        career.sim_info=sim
+        career.is_course_slot=False
+        career._at_work=False
+        career.requested_day_off=False
+        career.taking_day_off=False
+        self.assertEqual(career.early_warning_callback(),'early-warning-result')
+        self.assertTrue(career.original_early_warning_called)
+        self.assertTrue(career._aue_academic_day_off)
+        self.assertEqual(career.requested_day_off_reason,'FAKE_SICK')
+        self.assertEqual(career._start_work_callback(None,None,None),'career-start-result')
+        self.assertTrue(career._aue_academic_day_off)
 
     def test_class_day_requests_paid_leave_without_pto(self):
         sim=FakeSim()

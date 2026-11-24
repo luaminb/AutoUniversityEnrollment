@@ -43,6 +43,25 @@ class FakeAwayActionTracker:
         if not self.valid_during_apply: return
         self.current_away_action=tone
 
+class FakeUniversityCourseCareerSlot:
+    _aue_home_early_class_patched=False
+    def can_work_early(self): return False
+    def go_to_work_early(self): self.original_early_called=True
+    def _get_sim(self): return self.sim_instance
+
+class FakeMailbox:
+    zone_id=77
+
+class FakeSimInstance:
+    def __init__(self):
+        self.queue=types.SimpleNamespace(has_duplicate_super_affordance=lambda *args: False)
+        self.pushed=[]
+    def push_super_affordance(self, *args, **kwargs): self.pushed.append((args,kwargs))
+
+class FakeInteractionContext:
+    SOURCE_SCRIPT_WITH_USER_INTENT='SCRIPT'
+    def __init__(self,*args,**kwargs): self.args=args; self.kwargs=kwargs
+
 class FakeCareerBase:
     def request_day_off(self, reason): self.requested_day_off_reason=reason
     def start_tones(self): self.original_start_tones_called=True
@@ -93,7 +112,7 @@ class FakeCourseCareer:
 class FakeSim(FakeAgingMixin):
     def __init__(self, npc=True, player=False, played=False, selectable=False, tracker=None, household=True, age=4, aspiration=None):
         self.is_npc=npc; self.is_player_sim=player; self.is_played_sim=played; self.is_selectable=selectable; self.age=age
-        self.household=types.SimpleNamespace(is_player_household=player,is_played_household=played) if household else None
+        self.household=types.SimpleNamespace(is_player_household=player,is_played_household=played,home_zone_id=77) if household else None
         self.degree_tracker=tracker or FakeTracker(); self._primary_aspiration=aspiration
         self.away_action_tracker=FakeAwayActionTracker()
         self.career_tracker=types.SimpleNamespace(careers={})
@@ -101,6 +120,8 @@ class FakeSim(FakeAgingMixin):
 def load_mod():
     sims4=types.ModuleType('sims4'); sims4.log=types.SimpleNamespace(Logger=FakeLogger)
     services=types.ModuleType('services'); services.sim_info_manager=lambda: None
+    services.current_zone_id=lambda: 77
+    services.object_manager=lambda: types.SimpleNamespace(get_objects_with_tags_gen=lambda *tags: iter([FakeMailbox()]))
     services.time_service=lambda: types.SimpleNamespace(sim_now=FakeDateTime(10))
     careers=types.ModuleType('careers'); careers.__path__=[]
     away_actions=types.ModuleType('away_actions'); away_actions.__path__=[]
@@ -111,10 +132,27 @@ def load_mod():
     career_location.CareerLocationServiceNpc=FakeCareerLocationServiceNpc
     career_ops=types.ModuleType('careers.career_ops'); career_ops.CareerTimeOffReason=types.SimpleNamespace(NO_TIME_OFF='NO_TIME_OFF',FAKE_SICK='FAKE_SICK')
     date_and_time=types.ModuleType('date_and_time'); date_and_time.create_time_span=lambda hours=0, minutes=0: FakeTimeSpan(hours*60+minutes)
+    university_career=types.ModuleType('sims.university.university_career_tuning')
+    university_career.UniversityCourseCareerSlot=FakeUniversityCourseCareerSlot
+    mailbox_helper=types.ModuleType('world.mailbox_owner_helper')
+    mailbox_helper.MailboxOwnerHelper=type('MailboxOwnerHelper',(),{'MAILBOX_TAGS':('MAILBOX',)})
+    interaction_context=types.ModuleType('interactions.context')
+    interaction_context.InteractionContext=FakeInteractionContext
+    interaction_context.QueueInsertStrategy=types.SimpleNamespace(FIRST='FIRST')
+    interactions=types.ModuleType('interactions'); interactions.__path__=[]
+    interactions_priority=types.ModuleType('interactions.priority')
+    interactions_priority.Priority=types.SimpleNamespace(High='HIGH')
     sys.modules['away_actions']=away_actions; sys.modules['away_actions.away_action_tracker']=away_action_tracker
     sys.modules['careers']=careers; sys.modules['careers.career_base']=career_base
     sys.modules['careers.career_location']=career_location; sys.modules['careers.career_ops']=career_ops
     sys.modules['date_and_time']=date_and_time
+    sims_university=types.ModuleType('sims.university'); sims_university.__path__=[]
+    world=types.ModuleType('world'); world.__path__=[]
+    sys.modules['sims.university']=sims_university
+    sys.modules['sims.university.university_career_tuning']=university_career
+    sys.modules['world']=world; sys.modules['world.mailbox_owner_helper']=mailbox_helper
+    sys.modules['interactions']=interactions; sys.modules['interactions.context']=interaction_context
+    sys.modules['interactions.priority']=interactions_priority
     zone=types.ModuleType('zone')
     zone_types=types.ModuleType('zone_types')
     zone_types.ZoneState=types.SimpleNamespace(RUNNING='RUNNING')
@@ -416,6 +454,60 @@ class EnrollmentLogicTests(unittest.TestCase):
         sim,career=self._academic_career()
         self.assertEqual(career._end_work_callback(None),'career-end-result')
         self.assertFalse(hasattr(career,'paid_hours'))
+
+
+    def _home_course_slot(self):
+        sim=FakeSim(npc=False,player=True)
+        sim.degree_tracker.status=1
+        sim_instance=FakeSimInstance()
+        slot=FakeUniversityCourseCareerSlot()
+        slot.sim_info=sim
+        slot._sim_info=sim
+        slot.sim_instance=sim_instance
+        slot.work_early_affordance=FakeTone('GoToClassEarly')
+        slot.guid64=123
+        slot.career_messages=types.SimpleNamespace(career_early_warning_time=1)
+        slot.get_next_work_time=lambda: (FakeTimeSpan(30),FakeDateTime(10),None)
+        return sim,slot,sim_instance
+
+    def test_home_class_early_warning_is_available_one_hour_before(self):
+        sim,slot,sim_instance=self._home_course_slot()
+        self.assertTrue(self.mod._can_wait_for_class_at_home(slot))
+        self.assertTrue(slot.can_work_early())
+
+    def test_home_early_class_routes_to_mailbox_first_in_queue(self):
+        sim,slot,sim_instance=self._home_course_slot()
+        slot.go_to_work_early()
+        self.assertEqual(len(sim_instance.pushed),1)
+        args,kwargs=sim_instance.pushed[0]
+        self.assertIs(args[0],slot.work_early_affordance)
+        self.assertIsInstance(args[1],FakeMailbox)
+        self.assertEqual(args[3].kwargs['insert_strategy'],'FIRST')
+        self.assertEqual(kwargs['career_uid'],123)
+
+    def test_home_preparation_not_available_without_enrollment(self):
+        sim,slot,sim_instance=self._home_course_slot()
+        sim.degree_tracker.status=0
+        self.assertFalse(self.mod._can_wait_for_class_at_home(slot))
+
+    def test_home_preparation_not_available_without_mailbox(self):
+        sim,slot,sim_instance=self._home_course_slot()
+        original=self.mod.services.object_manager
+        self.mod.services.object_manager=lambda: types.SimpleNamespace(get_objects_with_tags_gen=lambda *tags: iter(()))
+        try:
+            self.assertFalse(self.mod._can_wait_for_class_at_home(slot))
+        finally:
+            self.mod.services.object_manager=original
+
+    def test_home_preparation_not_available_outside_home_zone(self):
+        sim,slot,sim_instance=self._home_course_slot()
+        original=self.mod.services.current_zone_id
+        self.mod.services.current_zone_id=lambda: 99
+        try:
+            self.assertIsNone(self.mod._get_home_mailbox(sim))
+            self.assertFalse(self.mod._can_wait_for_class_at_home(slot))
+        finally:
+            self.mod.services.current_zone_id=original
 
 
 if __name__=='__main__': unittest.main()

@@ -259,6 +259,22 @@ class EnrollmentLogicTests(unittest.TestCase):
         self.assertEqual(state,'RUNNING')
         self.assertTrue(callable(callback))
 
+    def test_startup_sweep_schedules_alarms_for_existing_enrolled_course_slots(self):
+        sim=FakeSim(age=4)
+        slot=FakeCourseCareer(10)
+        slot.sim_info=sim
+        slot._sim_info=sim
+        slot.get_next_work_time=lambda **kwargs:(FakeTimeSpan(180),FakeDateTime(10),None)
+        sim.career_tracker.careers={1:slot}
+        self.mod._startup_sweep_completed=False
+        self.mod.services.sim_info_manager=lambda:types.SimpleNamespace(get_all=lambda:[sim])
+        zone=self.mod.Zone()
+        zone.do_zone_spin_up(1,2)
+        zone.registered_callback[1]()
+        self.assertEqual(sim.degree_tracker.status,1)
+        self.assertTrue(hasattr(slot,'_aue_home_class_alarm_handle'))
+        self.assertEqual(slot._aue_home_class_alarm_handle.span.minutes,120)
+
 
     def _academic_career(self, class_day=10):
         sim=FakeSim()

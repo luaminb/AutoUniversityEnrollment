@@ -500,11 +500,14 @@ if not getattr(CareerBase, _CAREER_ATTEND_WORK_PATCH_MARKER, False):
                             self._aue_academic_day_off = True
                             return None
 
-                        if not getattr(self, '_aue_academic_day_off_paid', False):
-                            self.handle_career_loot(duration.in_hours())
-                            self._aue_academic_day_off_paid = True
-
                         self._aue_academic_day_off = True
+                        # NPCs do not receive the vanilla absent-shift payout.
+                        # Played Sims do: their native end-work callback handles
+                        # the FAKE_SICK paid absence, so never pay them here.
+                        if getattr(sim_info, 'is_npc', False):
+                            if not getattr(self, '_aue_academic_day_off_paid', False):
+                                self.handle_career_loot(duration.in_hours())
+                                self._aue_academic_day_off_paid = True
                         logger.info(
                             'Academic shift suppressed at attend_work; scheduled pay processed: Sim={} Career={} Hours={}',
                             sim_info, self, duration.in_hours()

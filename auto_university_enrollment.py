@@ -644,19 +644,77 @@ _AUE_PREPARATION_PATCH_MARKER = '_aue_independent_preparation_career_start_patch
 
 
 class SePrepararParaAulaInteraction(SuperInteraction):
-    """Independent queued interaction that routes the Sim to the home mailbox."""
+    """Non-tuned pie-menu interaction exposed dynamically on mailbox objects."""
+
+    INSTANCE_SUBCLASSES_ONLY = False
+    guid64 = _AUE_PREPARATION_INTERACTION_ID
+
+    @classmethod
+    def get_name(cls, *args, **kwargs):
+        from sims4.localization import LocalizationHelperTuning
+        return LocalizationHelperTuning.get_raw_text('Se Preparar para a Aula')
+
+    @classmethod
+    def _test(cls, target, context, **kwargs):
+        from event_testing.results import TestResult
+        try:
+            mailbox_tags = tuple(getattr(MailboxOwnerHelper, 'MAILBOX_TAGS', ()) or ())
+            target_tags = tuple(target.get_tags())
+            if any(tag in target_tags for tag in mailbox_tags):
+                return TestResult.TRUE
+        except Exception:
+            pass
+        return TestResult(False, 'This interaction is only available on mailboxes.')
 
     def _run_interaction_gen(self, timeline):
-        try:
-            super()._run_interaction_gen(timeline)
-            logger.info(
-                'Independent class preparation interaction started: Sim={} Mailbox={}',
-                getattr(self, 'sim', None), getattr(self, 'target', None)
-            )
-            return True
-        except Exception as exc:
-            logger.error('Independent class preparation interaction failed: {}', exc)
+        logger.info(
+            'Independent class preparation interaction started: Sim={} Mailbox={}',
+            getattr(self, 'sim', None), getattr(self, 'target', None)
+        )
+        return True
+
+
+def _inject_preparation_affordance_into_mailboxes():
+    """Append the custom interaction to live-object affordance results."""
+    try:
+        from objects.game_object import GameObject
+        for cls in GameObject.__mro__:
+            descriptor = cls.__dict__.get('super_affordances')
+            if descriptor is not None:
+                break
+        else:
+            logger.error('Could not locate GameObject.super_affordances descriptor.')
             return False
+
+        marker = '_aue_preparation_affordance_hooked'
+        if getattr(GameObject, marker, False):
+            return True
+
+        def _aue_super_affordances(self, *args, **kwargs):
+            original = descriptor.__get__(self, type(self))
+            affordances = tuple(original(*args, **kwargs))
+            if _AUE_PREPARATION_INTERACTION_ID in ():
+                return affordances
+            if any(getattr(item, 'guid64', None) == _AUE_PREPARATION_INTERACTION_ID
+                   for item in affordances):
+                return affordances
+            try:
+                if any(tag in tuple(self.get_tags())
+                       for tag in tuple(getattr(MailboxOwnerHelper, 'MAILBOX_TAGS', ()) or ())):
+                    return affordances + (SePrepararParaAulaInteraction,)
+            except Exception:
+                pass
+            return affordances
+
+        # Patch the class that owns the flexmethod, not a tuning instance.
+        owner = cls
+        owner.super_affordances = _aue_super_affordances
+        setattr(GameObject, marker, True)
+        logger.info('Independent preparation interaction injected through GameObject.super_affordances.')
+        return True
+    except Exception as exc:
+        logger.error('Could not hook mailbox affordances: {}', exc)
+        return False
 
 
 def _aue_get_home_mailbox(sim_info):
@@ -731,6 +789,7 @@ def _aue_push_independent_preparation(course_career):
             sim_info = getattr(course_career, '_sim_info', None)
         if not _has_active_university_enrollment(sim_info):
             return False
+        _inject_preparation_affordance_into_mailboxes()
         mailbox = _aue_get_home_mailbox(sim_info)
         if mailbox is None:
             logger.info('Preparation time reached, but Sim is not on the home lot: Sim={}', sim_info)

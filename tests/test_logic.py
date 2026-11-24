@@ -28,8 +28,12 @@ class FakeAgingMixin:
 class FakeCareerBase:
     def request_day_off(self, reason): self.requested_day_off_reason=reason
     def handle_career_loot(self, hours): self.paid_hours=hours
+    def _get_drama_node_time_off_reason(self, end_time=None):
+        return 'NO_TIME_OFF'
     def early_warning_callback(self):
         self.original_early_warning_called=True
+        reason=self._get_drama_node_time_off_reason()
+        if reason != 'NO_TIME_OFF': self.requested_day_off_reason=reason
         return 'early-warning-result'
     def _start_work_callback(self, scheduler, alarm_data, extra_data):
         self.original_start_called=True
@@ -73,7 +77,7 @@ def load_mod():
     careers=types.ModuleType('careers'); careers.__path__=[]
     career_base=types.ModuleType('careers.career_base'); career_base.CareerBase=FakeCareerBase
     career_location=types.ModuleType('careers.career_location'); career_location.CareerLocation=FakeCareerLocation
-    career_ops=types.ModuleType('careers.career_ops'); career_ops.CareerTimeOffReason=types.SimpleNamespace(FAKE_SICK='FAKE_SICK')
+    career_ops=types.ModuleType('careers.career_ops'); career_ops.CareerTimeOffReason=types.SimpleNamespace(NO_TIME_OFF='NO_TIME_OFF',FAKE_SICK='FAKE_SICK')
     date_and_time=types.ModuleType('date_and_time'); date_and_time.create_time_span=lambda hours=0, minutes=0: FakeTimeSpan(hours*60+minutes)
     sys.modules['careers']=careers; sys.modules['careers.career_base']=career_base
     sys.modules['careers.career_location']=career_location; sys.modules['careers.career_ops']=career_ops
@@ -172,115 +176,73 @@ class EnrollmentLogicTests(unittest.TestCase):
         self.assertEqual(state,'RUNNING')
         self.assertTrue(callable(callback))
 
-    def test_early_warning_requests_leave_before_shift(self):
+
+    def _academic_career(self, class_day=10):
         sim=FakeSim()
         sim.degree_tracker.status=1
-        sim.career_tracker.careers={1:FakeCourseCareer(10)}
-        career=FakeCareerBase()
-        career.sim_info=sim
-        career.is_course_slot=False
-        career._at_work=False
-        career.requested_day_off=False
-        career.taking_day_off=False
-        self.assertEqual(career.early_warning_callback(),'early-warning-result')
-        self.assertTrue(career.original_early_warning_called)
-        self.assertTrue(career._aue_academic_day_off)
-        self.assertEqual(career.requested_day_off_reason,'FAKE_SICK')
-        self.assertEqual(career._start_work_callback(None,None,None),'career-start-result')
-        self.assertTrue(career._aue_academic_day_off)
-
-    def test_class_day_requests_paid_leave_without_pto(self):
-        sim=FakeSim()
-        sim.degree_tracker.status=1
-        sim.career_tracker.careers={1:FakeCourseCareer(10)}
-        career=FakeCareerBase()
-        career.sim_info=sim
-        career.is_course_slot=False
-        career._at_work=False
-        career.requested_day_off=False
-        career.taking_day_off=False
-        self.assertTrue(self.mod._prepare_academic_day_off(career))
-        self.assertEqual(career.requested_day_off_reason,'FAKE_SICK')
-        self.assertTrue(career._aue_academic_day_off)
-
-    def test_non_class_day_does_not_request_leave(self):
-        sim=FakeSim()
-        sim.degree_tracker.status=1
-        sim.career_tracker.careers={1:FakeCourseCareer(11)}
-        career=FakeCareerBase()
-        career.sim_info=sim
-        career.is_course_slot=False
-        career._at_work=False
-        career.requested_day_off=False
-        career.taking_day_off=False
-        self.assertFalse(self.mod._prepare_academic_day_off(career))
-        self.assertFalse(hasattr(career,'requested_day_off_reason'))
-
-    def test_academic_day_off_prevents_npc_workplace_dispatch(self):
-        location=FakeCareerLocation()
-        location._career=types.SimpleNamespace(_aue_academic_day_off=True)
-        self.assertIsNone(location.on_npc_start_work())
-        self.assertFalse(getattr(location,'original_npc_start_called',False))
-
-    def test_npc_academic_leave_receives_full_shift_pay(self):
-        career=FakeCareerBase()
-        career._aue_academic_day_off=True
-        career._sim_info=types.SimpleNamespace(is_npc=True)
-        career.currently_at_work=False
-        career._current_work_duration=FakeTimeSpan(8*60)
-        self.assertEqual(career._end_work_callback(None),'career-end-result')
-        self.assertEqual(career.paid_hours,8.0)
-        self.assertTrue(career.original_end_called)
-
-    def test_class_day_requests_paid_leave_without_pto(self):
-        sim=FakeSim()
-        sim.degree_tracker.status=1
-        sim.career_tracker.careers={1:FakeCourseCareer(10)}
-        career=FakeCareerBase()
-        career.sim_info=sim
-        career.is_course_slot=False
-        career._at_work=False
-        career.requested_day_off=False
-        career.taking_day_off=False
-        self.assertTrue(self.mod._prepare_academic_day_off(career))
-        self.assertEqual(career.requested_day_off_reason,'FAKE_SICK')
-        self.assertTrue(career._aue_academic_day_off)
-
-    def test_non_class_day_does_not_request_leave(self):
-        sim=FakeSim()
-        sim.degree_tracker.status=1
-        sim.career_tracker.careers={1:FakeCourseCareer(11)}
-        career=FakeCareerBase()
-        career.sim_info=sim
-        career.is_course_slot=False
-        career._at_work=False
-        career.requested_day_off=False
-        career.taking_day_off=False
-        self.assertFalse(self.mod._prepare_academic_day_off(career))
-        self.assertFalse(hasattr(career,'requested_day_off_reason'))
-
-    def test_academic_day_off_prevents_npc_workplace_dispatch(self):
-        location=FakeCareerLocation()
-        location._career=types.SimpleNamespace(_aue_academic_day_off=True)
-        self.assertIsNone(location.on_npc_start_work())
-        self.assertFalse(getattr(location,'original_npc_start_called',False))
-
-    def test_npc_dispatch_requests_leave_even_without_early_warning(self):
-        sim=FakeSim()
-        sim.degree_tracker.status=1
-        sim.career_tracker.careers={1:FakeCourseCareer(10)}
+        sim.career_tracker.careers={1:FakeCourseCareer(class_day)}
         career=FakeCareerBase()
         career.sim_info=sim
         career._sim_info=sim
         career.is_course_slot=False
         career._at_work=False
-        career.requested_day_off=False
-        career.taking_day_off=False
-        location=FakeCareerLocation()
-        location._career=career
-        self.assertIsNone(location.on_npc_start_work())
+        career.currently_at_work=False
+        career._current_work_duration=FakeTimeSpan(8*60)
+        return sim, career
+
+    def test_native_drama_query_grants_academic_leave(self):
+        sim,career=self._academic_career()
+        reason=career._get_drama_node_time_off_reason()
+        self.assertEqual(reason,'FAKE_SICK')
         self.assertTrue(career._aue_academic_day_off)
+
+    def test_native_early_warning_receives_academic_reason(self):
+        sim,career=self._academic_career()
+        self.assertEqual(career.early_warning_callback(),'early-warning-result')
+        self.assertTrue(career.original_early_warning_called)
         self.assertEqual(career.requested_day_off_reason,'FAKE_SICK')
-        self.assertFalse(getattr(location,'original_npc_start_called',False))
+        self.assertTrue(career._aue_academic_day_off)
+
+    def test_native_holiday_reason_takes_precedence(self):
+        sim,career=self._academic_career()
+        original=self.mod._original_get_drama_node_time_off_reason
+        try:
+            self.mod._original_get_drama_node_time_off_reason=lambda self,end_time=None:'HOLIDAY_REASON'
+            self.assertEqual(career._get_drama_node_time_off_reason(),'HOLIDAY_REASON')
+            self.assertFalse(getattr(career,'_aue_academic_day_off',False))
+        finally:
+            self.mod._original_get_drama_node_time_off_reason=original
+
+    def test_non_class_day_does_not_grant_leave(self):
+        sim,career=self._academic_career(class_day=11)
+        self.assertEqual(career._get_drama_node_time_off_reason(),'NO_TIME_OFF')
+        self.assertFalse(getattr(career,'_aue_academic_day_off',False))
+
+    def test_played_sim_does_not_receive_academic_leave(self):
+        sim,career=self._academic_career()
+        sim.is_played_sim=True
+        sim.household.is_played_household=True
+        self.assertEqual(career._get_drama_node_time_off_reason(),'NO_TIME_OFF')
+        self.assertFalse(getattr(career,'_aue_academic_day_off',False))
+
+    def test_unenrolled_sim_does_not_receive_academic_leave(self):
+        sim,career=self._academic_career()
+        sim.degree_tracker.status=0
+        self.assertEqual(career._get_drama_node_time_off_reason(),'NO_TIME_OFF')
+        self.assertFalse(getattr(career,'_aue_academic_day_off',False))
+
+    def test_npc_academic_leave_receives_full_shift_pay(self):
+        sim,career=self._academic_career()
+        self.assertEqual(career._get_drama_node_time_off_reason(),'FAKE_SICK')
+        self.assertEqual(career._end_work_callback(None),'career-end-result')
+        self.assertEqual(career.paid_hours,8.0)
+        self.assertTrue(career.original_end_called)
+        self.assertFalse(career._aue_academic_day_off)
+
+    def test_no_manual_pay_without_academic_marker(self):
+        sim,career=self._academic_career()
+        self.assertEqual(career._end_work_callback(None),'career-end-result')
+        self.assertFalse(hasattr(career,'paid_hours'))
+
 
 if __name__=='__main__': unittest.main()

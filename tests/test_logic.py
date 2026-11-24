@@ -196,6 +196,12 @@ class EnrollmentLogicTests(unittest.TestCase):
         self.assertEqual(reason,'FAKE_SICK')
         self.assertTrue(career._aue_academic_day_off)
 
+    def test_class_is_compared_to_future_work_shift_day(self):
+        sim,career=self._academic_career(class_day=11)
+        reason=career._get_drama_node_time_off_reason(FakeDateTime(11))
+        self.assertEqual(reason,'FAKE_SICK')
+        self.assertTrue(career._aue_academic_day_off)
+
     def test_native_early_warning_receives_academic_reason(self):
         sim,career=self._academic_career()
         self.assertEqual(career.early_warning_callback(),'early-warning-result')

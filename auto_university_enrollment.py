@@ -602,8 +602,8 @@ if not getattr(Zone, _ZONE_PATCH_MARKER, False):
         def _run_sweep():
             try:
                 _enroll_existing_young_adults()
-            _schedule_loaded_university_classes()
-            _inject_preparation_affordance_into_mailboxes()
+                _schedule_loaded_university_classes()
+                _inject_preparation_affordance_into_mailboxes()
             except Exception as exc:
                 logger.error('Unexpected startup sweep error: {}', exc)
 

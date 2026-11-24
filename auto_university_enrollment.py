@@ -638,7 +638,7 @@ if not getattr(AgingMixin, _PATCH_MARKER, False):
 # Tuned residential pre-class preparation interaction (v0.21)
 # ---------------------------------------------------------------------------
 
-_AUE_PREPARATION_INTERACTION_ID = 2145051846111123295
+_AUE_PREPARATION_INTERACTION_ID = 11368423882965899103
 _AUE_PREPARATION_PATCH_MARKER = '_aue_university_preparation_trigger_patched'
 
 

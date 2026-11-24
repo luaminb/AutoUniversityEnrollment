@@ -666,10 +666,21 @@ class SePrepararParaAulaInteraction(SuperInteraction):
         return TestResult(False, 'This interaction is only available on mailboxes.')
 
     def _run_interaction_gen(self, timeline):
+        import elements
+        import element_utils
+
+        sim = getattr(self, 'sim', None)
+        sim_info = getattr(sim, 'sim_info', None)
+        wait_time = _aue_get_time_until_next_class(sim_info)
         logger.info(
-            'Independent class preparation interaction started: Sim={} Mailbox={}',
-            getattr(self, 'sim', None), getattr(self, 'target', None)
+            'Independent class preparation interaction started: Sim={} Mailbox={} Wait={}',
+            sim, getattr(self, 'target', None), wait_time
         )
+        if wait_time is not None and wait_time > create_time_span():
+            yield from element_utils.run_child(
+                timeline, elements.SleepElement(wait_time)
+            )
+        logger.info('Independent class preparation wait completed: Sim={}', sim)
         return True
 
 
@@ -712,6 +723,32 @@ def _inject_preparation_affordance_into_mailboxes():
     except Exception as exc:
         logger.error('Could not hook mailbox affordances: {}', exc)
         return False
+
+
+def _aue_get_time_until_next_class(sim_info):
+    """Return the shortest positive time until any enrolled university class."""
+    try:
+        tracker = getattr(sim_info, 'career_tracker', None)
+        if tracker is None:
+            return None
+        careers = getattr(tracker, 'careers', {})
+        values = careers.values() if hasattr(careers, 'values') else ()
+        delays = []
+        for career in values:
+            if not getattr(career, 'is_course_slot', False):
+                continue
+            result = career.get_next_work_time(
+                check_if_can_go_now=False,
+                consider_skipped_shifts=False,
+                ignore_pto=True
+            )
+            delay = result[0] if result else None
+            if delay is not None and delay > create_time_span():
+                delays.append(delay)
+        return min(delays) if delays else None
+    except Exception as exc:
+        logger.error('Could not calculate time until next university class for {}: {}', sim_info, exc)
+        return None
 
 
 def _aue_get_home_mailbox(sim_info):

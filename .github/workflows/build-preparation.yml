@@ -1,0 +1,43 @@
+name: Build University Class Preparation (Standalone)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'university_class_preparation.py'
+      - 'build_preparation.py'
+      - 'tuning-preparation/**'
+      - 'package-builder-preparation/**'
+      - '.github/workflows/build-preparation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Sims 4 Python runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.7.17'
+      - name: Compile script and run syntax validation
+        run: |
+          python -m py_compile university_class_preparation.py
+          python build_preparation.py
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build and validate DBPF tuning package
+        run: dotnet run --project package-builder-preparation/PackageBuilder.csproj -- tuning-preparation/UCP_SePrepararParaAula.xml tuning-preparation/UCP_SePrepararParaAula_XmlInjector.xml UniversityClassPreparation.package
+      - name: Upload standalone mod
+        uses: actions/upload-artifact@v4
+        with:
+          name: UniversityClassPreparation-standalone
+          path: |
+            UniversityClassPreparation.ts4script
+            UniversityClassPreparation.package
+          if-no-files-found: error
+          retention-days: 14

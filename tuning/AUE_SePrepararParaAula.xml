@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<I c="SePrepararParaAulaInteraction" i="interaction" m="auto_university_enrollment" n="AUE_SePrepararParaAula" s="11368423882965899103">
+  <V n="_saveable" t="disabled" />
+  <T n="allow_user_directed">True</T>
+  <T n="attention_cost">0</T>
+  <T n="category">0</T>
+  <T n="display_name">0xEFF39C5F</T>
+  <L n="interaction_category_tags">
+    <E>Interaction_Super</E>
+    <E>Interaction_All</E>
+  </L>
+  <E n="target_type">OBJECT</E>
+  <T n="visible">True</T>
+</I>

@@ -478,6 +478,8 @@ class EnrollmentLogicTests(unittest.TestCase):
 
     def test_home_early_class_routes_to_mailbox_first_in_queue(self):
         sim,slot,sim_instance=self._home_course_slot()
+        self.assertIsNotNone(self.mod._get_home_mailbox(sim))
+        self.assertIs(slot._get_sim(),sim_instance)
         slot.go_to_work_early()
         self.assertEqual(len(sim_instance.pushed),1)
         args,kwargs=sim_instance.pushed[0]

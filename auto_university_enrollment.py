@@ -445,7 +445,7 @@ if not getattr(CareerBase, _CAREER_DRAMA_TIME_OFF_PATCH_MARKER, False):
             if sim_info is None:
                 sim_info = getattr(self, '_sim_info', None)
 
-            if not _is_unplayed_npc_with_active_degree(sim_info):
+            if not _has_active_university_enrollment(sim_info):
                 return CareerTimeOffReason.NO_TIME_OFF
 
             # Match the workday being evaluated. Early-warning is scheduled
@@ -485,7 +485,7 @@ if not getattr(CareerBase, _CAREER_ATTEND_WORK_PATCH_MARKER, False):
             if sim_info is None:
                 sim_info = getattr(self, '_sim_info', None)
 
-            if _is_unplayed_npc_with_active_degree(sim_info):
+            if _has_active_university_enrollment(sim_info):
                 try:
                     now = services.time_service().sim_now
                     if _has_university_class_on_day(sim_info, now):

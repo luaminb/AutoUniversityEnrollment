@@ -175,6 +175,23 @@ def _has_university_class_on_day(sim_info, target_time=None):
         return False
 
 
+def _has_active_university_enrollment(sim_info):
+    """Return True for any Sim currently enrolled or on academic probation."""
+    try:
+        if sim_info is None:
+            return False
+        tracker = getattr(sim_info, 'degree_tracker', None)
+        if tracker is None:
+            return False
+        return tracker.get_enrollment_status() in (
+            EnrollmentStatus.ENROLLED,
+            EnrollmentStatus.PROBATION
+        )
+    except Exception as exc:
+        logger.error('Could not validate university enrollment for Sim {}: {}', sim_info, exc)
+        return False
+
+
 def _is_unplayed_npc_with_active_degree(sim_info):
     """Limit academic leave to NPCs in unplayed households with active enrollment."""
     try:
@@ -368,10 +385,10 @@ if not getattr(CareerBase, _CAREER_TONE_PATCH_MARKER, False):
     def _auto_university_start_tones(self):
         sim_info = getattr(self, 'sim_info', None)
         if (getattr(self, 'is_course_slot', False)
-                and _is_unplayed_npc_with_active_degree(sim_info)):
+                and _has_active_university_enrollment(sim_info)):
             tracker = getattr(sim_info, 'away_action_tracker', None)
             if tracker is None:
-                logger.error('No AwayActionTracker for enrolled NPC Sim {}', sim_info)
+                logger.error('No AwayActionTracker for enrolled Sim {}', sim_info)
                 return
             take_notes_tone = _find_take_notes_tone(self)
             if take_notes_tone is None:
@@ -387,12 +404,12 @@ if not getattr(CareerBase, _CAREER_TONE_PATCH_MARKER, False):
                 finally:
                     tracker._aue_allow_university_take_notes = False
                 logger.info(
-                    'NPC university class tone set to Take Notes: Sim={} Career={} Tone={}',
+                    'University class tone set to Take Notes: Sim={} Career={} Tone={},
                     sim_info, self, take_notes_tone
                 )
                 return
             except Exception as exc:
-                logger.error('Could not apply Take Notes tone for NPC Sim {}: {}', sim_info, exc)
+                logger.error('Could not apply Take Notes tone for enrolled Sim {}: {}', sim_info, exc)
                 return
 
         return _original_start_tones(self)

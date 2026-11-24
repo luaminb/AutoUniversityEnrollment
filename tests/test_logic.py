@@ -240,16 +240,20 @@ class EnrollmentLogicTests(unittest.TestCase):
         self.assertEqual(len(sim.away_action_tracker.started_callbacks),1)
         self.assertEqual(len(sim.away_action_tracker.ended_callbacks),1)
 
-    def test_player_university_student_keeps_vanilla_tone_behavior(self):
+    def test_active_player_university_student_automatically_takes_notes(self):
         sim=FakeSim(npc=False,player=True)
+        sim.degree_tracker.status=1
         career=FakeCareerBase()
         career.sim_info=sim
         career._sim_info=sim
         career.is_course_slot=True
-        career.available_tones=(FakeTone('UniversityTakeNotes'),)
+        take_notes=FakeTone('UniversityTakeNotes')
+        career.available_tones=(FakeTone('AttendClassNormally'),take_notes)
         career.start_tones()
-        self.assertTrue(career.original_start_tones_called)
-        self.assertIsNone(sim.away_action_tracker.current_away_action)
+        self.assertIs(sim.away_action_tracker.current_away_action,take_notes)
+        self.assertTrue(sim.away_action_tracker.valid_during_apply)
+        self.assertFalse(sim.away_action_tracker._aue_allow_university_take_notes)
+        self.assertFalse(getattr(career,'original_start_tones_called',False))
 
     def test_unplayed_npc_non_university_career_keeps_vanilla_tone_behavior(self):
         sim=FakeSim()

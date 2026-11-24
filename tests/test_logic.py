@@ -96,6 +96,7 @@ class FakeCareerLocationServiceNpc(FakeCareerLocation):
 class FakeTimeSpan:
     def __init__(self, minutes=0): self.minutes=minutes
     def __add__(self, other): return FakeTimeSpan(self.minutes+other.minutes)
+    def __le__(self, other): return self.minutes <= other.minutes
     def in_hours(self): return self.minutes/60.0
 
 class FakeDateTime:
@@ -482,7 +483,7 @@ class EnrollmentLogicTests(unittest.TestCase):
         args,kwargs=sim_instance.pushed[0]
         self.assertIs(args[0],slot.work_early_affordance)
         self.assertIsInstance(args[1],FakeMailbox)
-        self.assertEqual(args[3].kwargs['insert_strategy'],'FIRST')
+        self.assertEqual(args[2].kwargs['insert_strategy'],'FIRST')
         self.assertEqual(kwargs['career_uid'],123)
 
     def test_home_preparation_not_available_without_enrollment(self):

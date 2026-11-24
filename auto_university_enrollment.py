@@ -18,7 +18,6 @@ from interactions.base.super_interaction import SuperInteraction
 from interactions.context import InteractionContext, QueueInsertStrategy
 import interactions.priority
 from world.mailbox_owner_helper import MailboxOwnerHelper
-from sims4.resources import Types, get_resource_key
 import zone_types
 
 
@@ -693,8 +692,6 @@ def _inject_preparation_affordance_into_mailboxes():
         def _aue_super_affordances(self, *args, **kwargs):
             original = descriptor.__get__(self, type(self))
             affordances = tuple(original(*args, **kwargs))
-            if _AUE_PREPARATION_INTERACTION_ID in ():
-                return affordances
             if any(getattr(item, 'guid64', None) == _AUE_PREPARATION_INTERACTION_ID
                    for item in affordances):
                 return affordances
@@ -743,16 +740,8 @@ def _aue_get_home_mailbox(sim_info):
 
 
 def _aue_get_preparation_affordance():
-    try:
-        manager = services.affordance_manager()
-        if manager is None:
-            return None
-        return manager.get(get_resource_key(
-            _AUE_PREPARATION_INTERACTION_ID, Types.INTERACTION
-        ))
-    except Exception as exc:
-        logger.error('Could not resolve independent preparation affordance: {}', exc)
-        return None
+    # This is a script-defined SuperInteraction, not an XML tuning resource.
+    return SePrepararParaAulaInteraction
 
 
 def _inject_preparation_affordance_into_mailboxes():

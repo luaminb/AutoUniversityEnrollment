@@ -1,6 +1,7 @@
 name: Build Auto University Enrollment
 
 on:
+  pull_request:
   workflow_dispatch:
   push:
     paths:

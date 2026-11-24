@@ -2,6 +2,7 @@
 # Requires Discover University and a Python 3.7-compatible TS4 runtime.
 
 import services
+import alarms
 from away_actions.away_action_tracker import AwayActionTracker
 import sims4.log
 from careers.career_base import CareerBase
@@ -208,6 +209,119 @@ def _get_home_mailbox(sim_info):
         return None
 
 
+
+_HOME_CLASS_ALARM_MARKER = '_aue_home_class_alarm_handle'
+_HOME_CLASS_ALARM_PATCH_MARKER = '_aue_home_class_alarm_patch'
+
+
+def _push_home_class_preparation(course_career):
+    """Start the native early-class affordance at the Sim's residential mailbox."""
+    try:
+        sim_info = getattr(course_career, 'sim_info', None) or getattr(course_career, '_sim_info', None)
+        if not _has_active_university_enrollment(sim_info):
+            return False
+        mailbox = _get_home_mailbox(sim_info)
+        if mailbox is None:
+            logger.info('Home class alarm fired, but Sim is not at the home lot: Sim={}', sim_info)
+            return False
+        sim = course_career._get_sim()
+        affordance = getattr(course_career, 'work_early_affordance', None)
+        if sim is None or affordance is None:
+            logger.error('Home class alarm could not find Sim instance or early affordance: Sim={}', sim_info)
+            return False
+        queue = getattr(sim, 'queue', None)
+        if queue is not None and queue.has_duplicate_super_affordance(affordance, sim, mailbox):
+            return True
+        context = InteractionContext(
+            sim,
+            InteractionContext.SOURCE_SCRIPT_WITH_USER_INTENT,
+            interactions.priority.Priority.High,
+            insert_strategy=QueueInsertStrategy.FIRST
+        )
+        result = sim.push_super_affordance(affordance, mailbox, context, career_uid=course_career.guid64)
+        logger.info('Direct home-class alarm pushed preparation: Sim={} Course={} Mailbox={} Result={}',
+                    sim_info, course_career, mailbox, result)
+        return bool(result is not False)
+    except Exception as exc:
+        logger.error('Direct home-class preparation failed for {}: {}', course_career, exc)
+        return False
+
+
+def _schedule_home_class_alarm(course_career, offset_hours=0):
+    """Schedule a separate one-hour-before alarm, independent of EA's early-warning gate."""
+    try:
+        sim_info = getattr(course_career, 'sim_info', None) or getattr(course_career, '_sim_info', None)
+        if not _has_active_university_enrollment(sim_info):
+            return False
+        old_handle = getattr(course_career, _HOME_CLASS_ALARM_MARKER, None)
+        if old_handle is not None:
+            try:
+                alarms.cancel_alarm(old_handle)
+            except Exception:
+                pass
+        offset = create_time_span(hours=offset_hours) if offset_hours else None
+        result = course_career.get_next_work_time(offset_time=offset, consider_skipped_shifts=False, ignore_pto=True)
+        time_until_class = result[0] if result else None
+        if time_until_class is None:
+            return False
+        delay = time_until_class + (offset if offset is not None else create_time_span()) - create_time_span(hours=1)
+        if delay < create_time_span():
+            delay = create_time_span()
+        handle = alarms.add_alarm(
+            course_career,
+            delay,
+            lambda _: _home_class_alarm_callback(course_career),
+            repeating=False
+        )
+        setattr(course_career, _HOME_CLASS_ALARM_MARKER, handle)
+        logger.info('Scheduled direct one-hour home-class alarm: Sim={} Course={} DelayMinutes={}',
+                    sim_info, course_career, delay.in_minutes())
+        return True
+    except Exception as exc:
+        logger.error('Could not schedule direct home-class alarm for {}: {}', course_career, exc)
+        return False
+
+
+def _home_class_alarm_callback(course_career):
+    try:
+        setattr(course_career, _HOME_CLASS_ALARM_MARKER, None)
+        _push_home_class_preparation(course_career)
+        # Six hours past the current class start to locate the next scheduled class.
+        _schedule_home_class_alarm(course_career, offset_hours=6)
+    except Exception as exc:
+        logger.error('Home-class alarm callback failed for {}: {}', course_career, exc)
+
+
+def _schedule_loaded_university_classes():
+    try:
+        manager = services.sim_info_manager()
+        if manager is None:
+            return
+        for sim_info in manager.get_all():
+            tracker = getattr(sim_info, 'career_tracker', None)
+            if tracker is None:
+                continue
+            careers = getattr(tracker, 'careers', {})
+            values = careers.values() if hasattr(careers, 'values') else ()
+            for career in values:
+                if getattr(career, 'is_course_slot', False):
+                    _schedule_home_class_alarm(career)
+    except Exception as exc:
+        logger.error('Could not schedule loaded university class alarms: {}', exc)
+
+
+if not getattr(CareerBase, _HOME_CLASS_ALARM_PATCH_MARKER, False):
+    _original_career_start_for_home_alarm = CareerBase.career_start
+
+    def _auto_university_career_start_with_home_alarm(self, *args, **kwargs):
+        result = _original_career_start_for_home_alarm(self, *args, **kwargs)
+        if getattr(self, 'is_course_slot', False):
+            _schedule_home_class_alarm(self)
+        return result
+
+    CareerBase.career_start = _auto_university_career_start_with_home_alarm
+    setattr(CareerBase, _HOME_CLASS_ALARM_PATCH_MARKER, True)
+
 def _can_wait_for_class_at_home(course_career):
     """Use the EA early-warning window, but allow the home mailbox as destination."""
     try:
@@ -221,17 +335,10 @@ def _can_wait_for_class_at_home(course_career):
         if _get_home_mailbox(sim_info) is None:
             return False
 
-        early_warning_hours = getattr(
-            getattr(course_career, 'career_messages', None),
-            'career_early_warning_time',
-            0
-        )
-        if early_warning_hours <= 0:
-            return False
         time_until_class, _, _ = course_career.get_next_work_time()
         if time_until_class is None:
             return False
-        return time_until_class <= create_time_span(hours=early_warning_hours)
+        return time_until_class <= create_time_span(hours=1)
     except Exception as exc:
         logger.error('Could not evaluate home early-class preparation for {}: {}', course_career, exc)
         return False

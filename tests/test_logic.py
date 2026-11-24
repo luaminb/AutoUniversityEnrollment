@@ -47,6 +47,10 @@ class FakeCareerLocation:
         self.original_npc_start_called=True
         return 'npc-start-result'
 
+
+class FakeCareerLocationServiceNpc(FakeCareerLocation):
+    pass
+
 class FakeTimeSpan:
     def __init__(self, minutes=0): self.minutes=minutes
     def __add__(self, other): return FakeTimeSpan(self.minutes+other.minutes)
@@ -77,6 +81,7 @@ def load_mod():
     careers=types.ModuleType('careers'); careers.__path__=[]
     career_base=types.ModuleType('careers.career_base'); career_base.CareerBase=FakeCareerBase
     career_location=types.ModuleType('careers.career_location'); career_location.CareerLocation=FakeCareerLocation
+    career_location.CareerLocationServiceNpc=FakeCareerLocationServiceNpc
     career_ops=types.ModuleType('careers.career_ops'); career_ops.CareerTimeOffReason=types.SimpleNamespace(NO_TIME_OFF='NO_TIME_OFF',FAKE_SICK='FAKE_SICK')
     date_and_time=types.ModuleType('date_and_time'); date_and_time.create_time_span=lambda hours=0, minutes=0: FakeTimeSpan(hours*60+minutes)
     sys.modules['careers']=careers; sys.modules['careers.career_base']=career_base
@@ -190,9 +195,45 @@ class EnrollmentLogicTests(unittest.TestCase):
         career._current_work_duration=FakeTimeSpan(8*60)
         return sim, career
 
+
+    def test_future_shift_day_is_used_for_class_match(self):
+        sim,career=self._academic_career(class_day=11)
+        reason=career._get_drama_node_time_off_reason(FakeDateTime(11))
+        self.assertEqual(reason,'FAKE_SICK')
+        self.assertTrue(career._aue_academic_day_off)
+
+    def test_standard_npc_dispatch_is_suppressed_for_academic_leave(self):
+        sim,career=self._academic_career()
+        career._aue_academic_day_off=True
+        location=FakeCareerLocation()
+        location._career=career
+        self.assertIsNone(location.on_npc_start_work())
+        self.assertFalse(getattr(location,'original_npc_start_called',False))
+
+    def test_service_npc_dispatch_is_suppressed_for_academic_leave(self):
+        sim,career=self._academic_career()
+        career._aue_academic_day_off=True
+        location=FakeCareerLocationServiceNpc()
+        location._career=career
+        self.assertIsNone(location.on_npc_start_work())
+        self.assertFalse(getattr(location,'original_npc_start_called',False))
+
+    def test_npc_dispatch_continues_without_academic_leave(self):
+        sim,career=self._academic_career()
+        location=FakeCareerLocation()
+        location._career=career
+        self.assertEqual(location.on_npc_start_work(),'npc-start-result')
+        self.assertTrue(location.original_npc_start_called)
+
     def test_native_drama_query_grants_academic_leave(self):
         sim,career=self._academic_career()
         reason=career._get_drama_node_time_off_reason()
+        self.assertEqual(reason,'FAKE_SICK')
+        self.assertTrue(career._aue_academic_day_off)
+
+    def test_class_is_compared_to_future_work_shift_day(self):
+        sim,career=self._academic_career(class_day=11)
+        reason=career._get_drama_node_time_off_reason(FakeDateTime(11))
         self.assertEqual(reason,'FAKE_SICK')
         self.assertTrue(career._aue_academic_day_off)
 

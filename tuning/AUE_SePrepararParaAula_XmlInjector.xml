@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<I c="XmlInjector" i="snippet" m="xml_injector.snippet" n="UCP_SePrepararParaAula_XmlInjector" s="14966811642716490557">
+  <T n="xml_injector_minimum_version">2</T>
+  <L n="add_interactions_to_objects">
+    <U>
+      <V n="object_selection" t="objects_matching_name">
+        <U n="objects_matching_name">
+          <T n="partial_name">object_Mailbox</T>
+        </U>
+      </V>
+      <L n="_super_affordances">
+        <T>11368423882965899103</T>
+      </L>
+    </U>
+  </L>
+</I>

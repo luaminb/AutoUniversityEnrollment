@@ -812,9 +812,12 @@ if not getattr(Zone, _ZONE_PATCH_MARKER, False):
 
         def _run_sweep():
             try:
+                # First enroll existing young adults, then schedule alarms for
+                # every loaded university course career (including active Sims).
                 _enroll_existing_young_adults()
+                _schedule_loaded_university_classes()
             except Exception as exc:
-                logger.error('Unexpected startup sweep error: {}', exc)
+                logger.error('Unexpected startup enrollment/alarm sweep error: {}', exc)
 
         # RUNNING ensures household and SimInfo services are available.
         self.register_callback(zone_types.ZoneState.RUNNING, _run_sweep)

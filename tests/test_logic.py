@@ -143,6 +143,7 @@ def load_mod():
     interactions=types.ModuleType('interactions'); interactions.__path__=[]
     interactions_priority=types.ModuleType('interactions.priority')
     interactions_priority.Priority=types.SimpleNamespace(High='HIGH')
+    interactions.priority=interactions_priority
     sys.modules['away_actions']=away_actions; sys.modules['away_actions.away_action_tracker']=away_action_tracker
     sys.modules['careers']=careers; sys.modules['careers.career_base']=career_base
     sys.modules['careers.career_location']=career_location; sys.modules['careers.career_ops']=career_ops

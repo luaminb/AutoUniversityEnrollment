@@ -4,6 +4,7 @@
 import services
 import sims4.log
 from careers.career_base import CareerBase
+from careers.career_location import CareerLocation, CareerLocationServiceNpc
 from careers.career_ops import CareerTimeOffReason
 from date_and_time import create_time_span
 from sims.aging.aging_mixin import AgingMixin
@@ -363,7 +364,7 @@ if not getattr(CareerBase, _CAREER_DRAMA_TIME_OFF_PATCH_MARKER, False):
 
             # Match the workday being evaluated. Early-warning is scheduled
             # before the shift, so sim_now identifies the current workday.
-            if not _has_university_class_on_day(sim_info):
+            if not _has_university_class_on_day(sim_info, target_end_time):
                 return CareerTimeOffReason.NO_TIME_OFF
 
             # Use the game's native paid absence reason. Unlike PTO this does
@@ -413,6 +414,34 @@ if not getattr(CareerBase, _CAREER_PATCH_MARKER, False):
     CareerBase._end_work_callback = _auto_university_end_work_callback
     setattr(CareerBase, _CAREER_PATCH_MARKER, True)
 
+
+
+# NPC work dispatch has two EA paths: the standard career location and the
+# service-NPC specialization. Both must respect the academic leave marker.
+_LOCATION_PATCH_MARKER = '_auto_university_enrollment_npc_dispatch_patched'
+
+
+def _patch_npc_dispatch(location_class):
+    if getattr(location_class, _LOCATION_PATCH_MARKER, False):
+        return
+    original = location_class.on_npc_start_work
+
+    def _auto_university_on_npc_start_work(self, *args, **kwargs):
+        career = getattr(self, '_career', None)
+        if career is not None and getattr(career, '_aue_academic_day_off', False):
+            logger.info(
+                'NPC work dispatch suppressed for academic leave: Sim={} Career={} Location={}',
+                getattr(career, 'sim_info', None), career, location_class
+            )
+            return None
+        return original(self, *args, **kwargs)
+
+    location_class.on_npc_start_work = _auto_university_on_npc_start_work
+    setattr(location_class, _LOCATION_PATCH_MARKER, True)
+
+
+_patch_npc_dispatch(CareerLocation)
+_patch_npc_dispatch(CareerLocationServiceNpc)
 
 if not getattr(Zone, _ZONE_PATCH_MARKER, False):
     _original_do_zone_spin_up = Zone.do_zone_spin_up

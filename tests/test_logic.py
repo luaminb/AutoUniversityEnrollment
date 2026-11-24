@@ -362,11 +362,11 @@ class EnrollmentLogicTests(unittest.TestCase):
         sim.household.is_played_household=True
         self.assertIsNone(career.attend_work())
         self.assertFalse(getattr(career,'original_attend_work_called',False))
-        self.assertEqual(career.paid_hours,8.0)
+        self.assertFalse(hasattr(career,'paid_hours'))
         self.assertTrue(career._aue_academic_day_off)
-        self.assertTrue(career._aue_academic_day_off_paid)
+        self.assertFalse(getattr(career,'_aue_academic_day_off_paid',False))
         self.assertIsNone(career.attend_work())
-        self.assertEqual(career.paid_hours,8.0)
+        self.assertFalse(hasattr(career,'paid_hours'))
 
     def test_unenrolled_sim_does_not_receive_academic_leave(self):
         sim,career=self._academic_career()

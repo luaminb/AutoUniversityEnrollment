@@ -14,7 +14,7 @@ from sims.sim_info_types import Age
 from sims.university.university_enums import EnrollmentStatus
 from sims.university.university_tuning import University
 from zone import Zone
-from interactions.base.super_interaction import SuperInteraction
+from interactions.base.immediate_interaction import ImmediateSuperInteraction
 from interactions.context import InteractionContext, QueueInsertStrategy
 import interactions.priority
 from world.mailbox_owner_helper import MailboxOwnerHelper
@@ -642,30 +642,24 @@ _AUE_PREPARATION_INTERACTION_ID = 2145051846111123295
 _AUE_PREPARATION_PATCH_MARKER = '_aue_university_preparation_trigger_patched'
 
 
-class SePrepararParaAulaInteraction(SuperInteraction):
+class SePrepararParaAulaInteraction(ImmediateSuperInteraction):
     """Tuned mailbox interaction. Its tuning is supplied by the companion package."""
-
-    @classmethod
-    def get_name(cls, *args, **kwargs):
-        from sims4.localization import LocalizationHelperTuning
-        return LocalizationHelperTuning.get_raw_text('Se Preparar para a Aula')
 
     @classmethod
     def _test(cls, target, context, **kwargs):
         from event_testing.results import TestResult
-        try:
-            mailbox_tags = tuple(getattr(MailboxOwnerHelper, 'MAILBOX_TAGS', ()) or ())
-            target_tags = tuple(target.get_tags())
-            if mailbox_tags and any(tag in target_tags for tag in mailbox_tags):
-                return TestResult.TRUE
-        except Exception:
-            pass
-        return TestResult(False, 'This interaction is only available on mailboxes.')
+        # XML Injector exposes this affordance only on mailbox object tunings.
+        # Keep a defensive target check without depending on private tag APIs.
+        if target is not None:
+            return TestResult.TRUE
+        return TestResult(False, 'A mailbox target is required.')
 
     def _run_interaction_gen(self, timeline):
         import elements
         import element_utils
 
+        # Let the interaction base execute its tuned routing/entry behavior first.
+        yield from super()._run_interaction_gen(timeline)
         sim = getattr(self, 'sim', None)
         sim_info = getattr(sim, 'sim_info', None)
         wait_time = _aue_get_time_until_next_class(sim_info)

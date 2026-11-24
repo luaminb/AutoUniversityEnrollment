@@ -853,7 +853,7 @@ def _aue_find_next_class(sim_info, offset_time=None):
     try:
         tracker = getattr(sim_info, 'career_tracker', None)
         if tracker is None:
-            return None, None
+            return None, None, None
         careers = getattr(tracker, 'careers', {})
         values = careers.values() if hasattr(careers, 'values') else ()
         offset = offset_time
@@ -878,7 +878,7 @@ def _aue_find_next_class(sim_info, offset_time=None):
             end_offset = (end_time - now) if end_time is not None else None
             candidates.append((delay, career, end_offset))
         if not candidates:
-            return None, None
+            return None, None, None
         delay, career, end_offset = min(candidates, key=lambda item: item[0])
         return career, delay, end_offset
     except Exception as exc:

@@ -25,8 +25,30 @@ class FakeTracker:
 class FakeAgingMixin:
     def change_age(self,new_age,current_age): self.last_age_change=(new_age,current_age); return 'age-change-result'
 
+class FakeTone:
+    def __init__(self, name): self.__name__=name
+
+class FakeAwayActionTracker:
+    def __init__(self):
+        self._aue_allow_university_take_notes=False
+        self.current_away_action=None
+        self.started_callbacks=[]
+        self.ended_callbacks=[]
+        self.valid_during_apply=None
+    def is_sim_info_valid_to_run_away_actions(self): return False
+    def add_on_away_action_started_callback(self, callback): self.started_callbacks.append(callback)
+    def add_on_away_action_ended_callback(self, callback): self.ended_callbacks.append(callback)
+    def create_and_apply_away_action(self, tone):
+        self.valid_during_apply=self.is_sim_info_valid_to_run_away_actions()
+        if not self.valid_during_apply: return
+        self.current_away_action=tone
+
 class FakeCareerBase:
     def request_day_off(self, reason): self.requested_day_off_reason=reason
+    def start_tones(self): self.original_start_tones_called=True
+    def get_available_tones_gen(self): return iter(getattr(self, 'available_tones', ()))
+    def _on_tone_started(self, tone): self.started_tone=tone
+    def _on_tone_ended(self, tone): self.ended_tone=tone
     def handle_career_loot(self, hours): self.paid_hours=hours
     def _get_drama_node_time_off_reason(self, end_time=None):
         return 'NO_TIME_OFF'
@@ -72,6 +94,7 @@ class FakeSim(FakeAgingMixin):
         self.is_npc=npc; self.is_player_sim=player; self.is_played_sim=played; self.is_selectable=selectable; self.age=age
         self.household=types.SimpleNamespace(is_player_household=player,is_played_household=played) if household else None
         self.degree_tracker=tracker or FakeTracker(); self._primary_aspiration=aspiration
+        self.away_action_tracker=FakeAwayActionTracker()
         self.career_tracker=types.SimpleNamespace(careers={})
 
 def load_mod():
@@ -79,11 +102,15 @@ def load_mod():
     services=types.ModuleType('services'); services.sim_info_manager=lambda: None
     services.time_service=lambda: types.SimpleNamespace(sim_now=FakeDateTime(10))
     careers=types.ModuleType('careers'); careers.__path__=[]
+    away_actions=types.ModuleType('away_actions'); away_actions.__path__=[]
+    away_action_tracker=types.ModuleType('away_actions.away_action_tracker')
+    away_action_tracker.AwayActionTracker=FakeAwayActionTracker
     career_base=types.ModuleType('careers.career_base'); career_base.CareerBase=FakeCareerBase
     career_location=types.ModuleType('careers.career_location'); career_location.CareerLocation=FakeCareerLocation
     career_location.CareerLocationServiceNpc=FakeCareerLocationServiceNpc
     career_ops=types.ModuleType('careers.career_ops'); career_ops.CareerTimeOffReason=types.SimpleNamespace(NO_TIME_OFF='NO_TIME_OFF',FAKE_SICK='FAKE_SICK')
     date_and_time=types.ModuleType('date_and_time'); date_and_time.create_time_span=lambda hours=0, minutes=0: FakeTimeSpan(hours*60+minutes)
+    sys.modules['away_actions']=away_actions; sys.modules['away_actions.away_action_tracker']=away_action_tracker
     sys.modules['careers']=careers; sys.modules['careers.career_base']=career_base
     sys.modules['careers.career_location']=career_location; sys.modules['careers.career_ops']=career_ops
     sys.modules['date_and_time']=date_and_time
@@ -195,6 +222,56 @@ class EnrollmentLogicTests(unittest.TestCase):
         career._current_work_duration=FakeTimeSpan(8*60)
         return sim, career
 
+
+
+    def test_unplayed_npc_university_student_automatically_takes_notes(self):
+        sim=FakeSim()
+        sim.degree_tracker.status=1
+        career=FakeCareerBase()
+        career.sim_info=sim
+        career._sim_info=sim
+        career.is_course_slot=True
+        take_notes=FakeTone('UniversityTakeNotes')
+        career.available_tones=(FakeTone('AttendClassNormally'),take_notes)
+        career.start_tones()
+        self.assertIs(sim.away_action_tracker.current_away_action,take_notes)
+        self.assertTrue(sim.away_action_tracker.valid_during_apply)
+        self.assertFalse(sim.away_action_tracker._aue_allow_university_take_notes)
+        self.assertEqual(len(sim.away_action_tracker.started_callbacks),1)
+        self.assertEqual(len(sim.away_action_tracker.ended_callbacks),1)
+
+    def test_player_university_student_keeps_vanilla_tone_behavior(self):
+        sim=FakeSim(npc=False,player=True)
+        career=FakeCareerBase()
+        career.sim_info=sim
+        career._sim_info=sim
+        career.is_course_slot=True
+        career.available_tones=(FakeTone('UniversityTakeNotes'),)
+        career.start_tones()
+        self.assertTrue(career.original_start_tones_called)
+        self.assertIsNone(sim.away_action_tracker.current_away_action)
+
+    def test_unplayed_npc_non_university_career_keeps_vanilla_tone_behavior(self):
+        sim=FakeSim()
+        sim.degree_tracker.status=1
+        career=FakeCareerBase()
+        career.sim_info=sim
+        career._sim_info=sim
+        career.is_course_slot=False
+        career.start_tones()
+        self.assertTrue(career.original_start_tones_called)
+        self.assertIsNone(sim.away_action_tracker.current_away_action)
+
+    def test_missing_take_notes_tone_does_not_apply_another_action(self):
+        sim=FakeSim()
+        sim.degree_tracker.status=1
+        career=FakeCareerBase()
+        career.sim_info=sim
+        career._sim_info=sim
+        career.is_course_slot=True
+        career.available_tones=(FakeTone('AttendClassNormally'),)
+        career.start_tones()
+        self.assertIsNone(sim.away_action_tracker.current_away_action)
 
     def test_future_shift_day_is_used_for_class_match(self):
         sim,career=self._academic_career(class_day=11)

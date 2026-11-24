@@ -1,11 +1,11 @@
-name: Build Auto University Enrollment
+name: Build University Class Preparation
 
 on:
   pull_request:
   workflow_dispatch:
   push:
     paths:
-      - 'auto_university_enrollment.py'
+      - 'university_class_preparation.py'
       - 'build.py'
       - 'tests/**'
       - 'tuning/**'
@@ -42,14 +42,14 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Build and validate tuning package
-        run: dotnet run --project package-builder/PackageBuilder.csproj -- tuning/AUE_SePrepararParaAula.xml tuning/AUE_SePrepararParaAula_XmlInjector.xml AutoUniversityEnrollment_Preparation.package "Se Preparar para a Aula"
+        run: dotnet run --project package-builder/PackageBuilder.csproj -- tuning/AUE_SePrepararParaAula.xml tuning/AUE_SePrepararParaAula_XmlInjector.xml UniversityClassPreparation.package "Se Preparar para a Aula"
 
       - name: Upload installable mod files
         uses: actions/upload-artifact@v4
         with:
-          name: AutoUniversityEnrollment-v0.21
+          name: UniversityClassPreparation
           path: |
-            AutoUniversityEnrollment.ts4script
-            AutoUniversityEnrollment_Preparation.package
+            UniversityClassPreparation.ts4script
+            UniversityClassPreparation.package
           if-no-files-found: error
           retention-days: 14

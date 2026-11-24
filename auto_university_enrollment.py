@@ -845,61 +845,98 @@ def _aue_push_independent_preparation(course_career):
         return False
 
 
-def _aue_schedule_preparation_alarm(course_career, offset_hours=0):
-    """Schedule the independent action exactly one hour before the next class."""
+_AUE_PREPARATION_ALARM_HANDLES = {}
+
+
+def _aue_find_next_class(sim_info, offset_hours=0):
+    """Find the earliest upcoming class across all four course slots."""
     try:
-        sim_info = getattr(course_career, 'sim_info', None)
-        if sim_info is None:
-            sim_info = getattr(course_career, '_sim_info', None)
+        tracker = getattr(sim_info, 'career_tracker', None)
+        if tracker is None:
+            return None, None
+        careers = getattr(tracker, 'careers', {})
+        values = careers.values() if hasattr(careers, 'values') else ()
+        offset = create_time_span(hours=offset_hours) if offset_hours else None
+        candidates = []
+        for career in values:
+            if not getattr(career, 'is_course_slot', False):
+                continue
+            result = career.get_next_work_time(
+                offset_time=offset,
+                check_if_can_go_now=False,
+                consider_skipped_shifts=False,
+                ignore_pto=True
+            )
+            time_until_class = result[0] if result else None
+            if time_until_class is None:
+                continue
+            delay = time_until_class + (offset if offset is not None else create_time_span()) - create_time_span(hours=1)
+            if delay < create_time_span():
+                delay = create_time_span()
+            candidates.append((delay, career))
+        if not candidates:
+            return None, None
+        delay, career = min(candidates, key=lambda item: item[0])
+        return career, delay
+    except Exception as exc:
+        logger.error('Could not find next university class for {}: {}', sim_info, exc)
+        return None, None
+
+
+def _aue_schedule_preparation_alarm(sim_info, offset_hours=0):
+    """Schedule one alarm per Sim, even when the Sim has four course slots."""
+    try:
         if not _has_active_university_enrollment(sim_info):
             return False
+        sim_id = getattr(sim_info, 'sim_id', None)
+        if sim_id is None:
+            sim_id = getattr(sim_info, 'id', None)
+        if sim_id is None:
+            return False
 
-        old_handle = getattr(course_career, _AUE_PREPARATION_ALARM_MARKER, None)
+        old_handle = _AUE_PREPARATION_ALARM_HANDLES.pop(sim_id, None)
         if old_handle is not None:
             try:
                 alarms.cancel_alarm(old_handle)
             except Exception:
                 pass
 
-        offset = create_time_span(hours=offset_hours) if offset_hours else None
-        result = course_career.get_next_work_time(
-            offset_time=offset,
-            check_if_can_go_now=False,
-            consider_skipped_shifts=False,
-            ignore_pto=True
-        )
-        time_until_class = result[0] if result else None
-        if time_until_class is None:
+        course_career, delay = _aue_find_next_class(sim_info, offset_hours)
+        if course_career is None or delay is None:
             return False
 
-        delay = time_until_class + (offset if offset is not None else create_time_span()) - create_time_span(hours=1)
-        if delay < create_time_span():
-            delay = create_time_span()
-
         handle = alarms.add_alarm(
-            course_career,
+            sim_info,
             delay,
-            lambda _: _aue_preparation_alarm_callback(course_career),
+            lambda _: _aue_preparation_alarm_callback(sim_info),
             repeating=False
         )
-        setattr(course_career, _AUE_PREPARATION_ALARM_MARKER, handle)
+        _AUE_PREPARATION_ALARM_HANDLES[sim_id] = handle
         logger.info(
             'Independent one-hour preparation alarm scheduled: Sim={} Course={} DelayMinutes={}',
             sim_info, course_career, delay.in_minutes()
         )
         return True
     except Exception as exc:
-        logger.error('Could not schedule independent preparation alarm for {}: {}', course_career, exc)
+        logger.error('Could not schedule independent preparation alarm for {}: {}', sim_info, exc)
         return False
 
 
-def _aue_preparation_alarm_callback(course_career):
+def _aue_preparation_alarm_callback(sim_info):
     try:
-        setattr(course_career, _AUE_PREPARATION_ALARM_MARKER, None)
-        _aue_push_independent_preparation(course_career)
-        _aue_schedule_preparation_alarm(course_career, offset_hours=6)
+        sim_id = getattr(sim_info, 'sim_id', None)
+        if sim_id is None:
+            sim_id = getattr(sim_info, 'id', None)
+        if sim_id is not None:
+            _AUE_PREPARATION_ALARM_HANDLES.pop(sim_id, None)
+        course_career, _ = _aue_find_next_class(sim_info)
+        if course_career is not None:
+            _aue_push_independent_preparation(course_career)
+        # Scan every course slot again after the current class, avoiding
+        # duplicate alarms for Sims enrolled in multiple courses.
+        _aue_schedule_preparation_alarm(sim_info, offset_hours=6)
     except Exception as exc:
-        logger.error('Independent preparation alarm callback failed: {}', exc)
+        logger.error('Independent preparation alarm callback failed for {}: {}', sim_info, exc)
 
 
 def _schedule_loaded_university_classes():
@@ -908,14 +945,7 @@ def _schedule_loaded_university_classes():
         if manager is None:
             return
         for sim_info in manager.get_all():
-            tracker = getattr(sim_info, 'career_tracker', None)
-            if tracker is None:
-                continue
-            careers = getattr(tracker, 'careers', {})
-            values = careers.values() if hasattr(careers, 'values') else ()
-            for career in values:
-                if getattr(career, 'is_course_slot', False):
-                    _aue_schedule_preparation_alarm(career)
+            _aue_schedule_preparation_alarm(sim_info)
     except Exception as exc:
         logger.error('Could not schedule independent university preparation alarms: {}', exc)
 
@@ -926,7 +956,7 @@ if not getattr(CareerBase, _AUE_PREPARATION_PATCH_MARKER, False):
     def _aue_career_start_with_independent_preparation(self, *args, **kwargs):
         result = _aue_original_career_start_for_preparation(self, *args, **kwargs)
         if getattr(self, 'is_course_slot', False):
-            _aue_schedule_preparation_alarm(self)
+            _aue_schedule_preparation_alarm(getattr(self, 'sim_info', None))
         return result
 
     CareerBase.career_start = _aue_career_start_with_independent_preparation

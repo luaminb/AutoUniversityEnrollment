@@ -120,8 +120,8 @@ def _has_completed_degree(tracker):
         return False
 
 
-def _has_university_class_on_day(sim_info, reference_time=None):
-    """Check active UniversityCourseCareerSlot schedules for a given day."""
+def _has_university_class_on_day(sim_info, target_time=None):
+    """Check course slots on the work shift's date, using current time as schedule anchor."""
     try:
         career_tracker = getattr(sim_info, 'career_tracker', None)
         if career_tracker is None:
@@ -130,15 +130,21 @@ def _has_university_class_on_day(sim_info, reference_time=None):
         career_values = careers.values() if hasattr(careers, 'values') else ()
         course_careers = tuple(c for c in career_values if getattr(c, 'is_course_slot', False))
         if not course_careers:
+            logger.info('No UniversityCourseCareerSlot found for Sim {}', sim_info)
             return False
 
-        now = reference_time if reference_time is not None else services.time_service().sim_now
-        today = int(now.absolute_days())
+        # get_next_work_time interprets offset_time relative to sim_now, not
+        # relative to the supplied work-shift end_time. Keep those two clocks
+        # separate: the target date comes from the work shift, schedule scans
+        # are anchored to the actual current game time.
+        now = services.time_service().sim_now
+        target = target_time if target_time is not None else now
+        target_day = int(target.absolute_days())
         initial_offset = create_time_span(hours=-36)
 
         for course_career in course_careers:
             offset = initial_offset
-            for _ in range(12):
+            for _ in range(16):
                 result = course_career.get_next_work_time(
                     offset_time=offset,
                     check_if_can_go_now=False,
@@ -151,11 +157,14 @@ def _has_university_class_on_day(sim_info, reference_time=None):
                 if class_start is None:
                     break
                 class_day = int(class_start.absolute_days())
-                if class_day == today:
+                if class_day == target_day:
+                    logger.info('University class matches workday: Sim={} Day={} Slot={}',
+                                sim_info, target_day, course_career)
                     return True
-                if class_day > today:
+                if class_day > target_day:
                     break
                 offset = (class_start - now) + create_time_span(minutes=1)
+        logger.info('No university class on workday: Sim={} Day={}', sim_info, target_day)
         return False
     except Exception as exc:
         logger.error('Could not inspect university class schedule for Sim {}: {}', sim_info, exc)
@@ -193,7 +202,7 @@ def _prepare_academic_day_off(career):
             sim_info = getattr(career, '_sim_info', None)
         if not _is_unplayed_npc_with_active_degree(sim_info):
             return False
-        if not _has_university_class_on_day(sim_info):
+        if not _has_university_class_on_day(sim_info, target_end_time):
             return False
 
         # FAKE_SICK uses the native paid-leave pipeline without deducting PTO.
@@ -327,6 +336,15 @@ if not getattr(CareerBase, _CAREER_DRAMA_TIME_OFF_PATCH_MARKER, False):
 
     def _auto_university_get_drama_node_time_off_reason(self, end_time=None):
         # Preserve every native drama-node decision first (holidays, events, etc.).
+        # Resolve the shift end date exactly as the EA method does. Its
+        # early-warning caller normally passes no argument.
+        target_end_time = end_time
+        if target_end_time is None:
+            try:
+                _, _, target_end_time = self.get_next_work_time()
+            except Exception:
+                target_end_time = None
+
         reason = _original_get_drama_node_time_off_reason(self, end_time)
         if reason != CareerTimeOffReason.NO_TIME_OFF:
             return reason
